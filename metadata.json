@@ -1,0 +1,6 @@
+{
+  "name": "Aegis",
+  "description": "Streaming transactional anomaly detection sliding-window visualizer running server-side ReAct model containment action loops",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,15 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+storage/*.json
+__pycache__/
+storage/*.db*
+storage/*.log
+.idea/
+*.pyc
+storage/test_*.db
