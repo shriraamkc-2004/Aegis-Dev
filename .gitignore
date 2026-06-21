@@ -11,3 +11,14 @@ __pycache__/
 storage/*.db*
 storage/*.log
 .idea/
+*.pyc
+storage/test_*.db
+
+/prisma/prisma
+src/generated/prisma
+archive/storage/
+storage/backups/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite

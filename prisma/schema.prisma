@@ -1,0 +1,282 @@
+// ============================================================
+// Aegis Enterprise - Prisma Schema (PostgreSQL)
+// Multi-Tenant SOC Platform with Enterprise Features
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Organizations (Tenants) ──────────────────────────────────────────────────
+
+model Organization {
+  id                  Int                  @id @default(autoincrement())
+  name                String               @db.VarChar(255)
+  slug                String               @unique @db.VarChar(100)
+  description         String?              @db.Text
+  status              String               @default("active") @db.VarChar(20)
+  created_at          DateTime             @default(now())
+  updated_at          DateTime             @updatedAt
+
+  users               User[]
+  telemetry_events    TelemetryEvent[]
+  anomalies           Anomaly[]
+  incidents           Incident[]
+  audit_logs          AuditLog[]
+  connectors          Connector[]
+  chat_sessions       ChatSession[]
+
+  @@map("organizations")
+}
+
+// ─── Users ─────────────────────────────────────────────────────────────────────
+
+enum Role {
+  super_admin
+  org_admin
+  soc_analyst
+  executive_viewer
+  demo_admin
+  demo_analyst
+  demo_viewer
+}
+
+model User {
+  id              Int       @id @default(autoincrement())
+  organization_id Int?
+  username        String    @unique @db.VarChar(50)
+  email           String?   @unique @db.VarChar(255)
+  password_hash   String    @db.VarChar(255)
+  first_name      String    @default("") @db.VarChar(100)
+  last_name       String    @default("") @db.VarChar(100)
+  role            Role      @default(demo_viewer)
+  mode            String    @default("org") @db.VarChar(10)
+  is_active       Boolean   @default(true)
+  email_verified  Boolean   @default(false)
+  last_login      DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  organization    Organization? @relation(fields: [organization_id], references: [id], onDelete: SetNull)
+  refresh_tokens  RefreshToken[]
+  audit_logs      AuditLog[]
+  chat_sessions   ChatSession[]
+
+  @@index([organization_id])
+  @@map("users")
+}
+
+// ─── Refresh Tokens ────────────────────────────────────────────────────────────
+
+model RefreshToken {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  token_hash String   @unique @db.VarChar(255)
+  expires_at DateTime @db.Timestamptz
+  created_at DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("refresh_tokens")
+}
+
+// ─── Telemetry Events (High-volume event storage) ─────────────────────────────
+
+model TelemetryEvent {
+  id              BigInt   @id @default(autoincrement())
+  organization_id Int
+  event_type      String   @db.VarChar(100)
+  source          String   @db.VarChar(255)
+  timestamp       DateTime @db.Timestamptz
+  raw_data        Json?
+  created_at      DateTime @default(now())
+
+  organization    Organization @relation(fields: [organization_id], references: [id])
+
+  @@index([organization_id, timestamp])
+  @@index([timestamp])
+  @@map("telemetry_events")
+}
+
+// ─── Anomalies ─────────────────────────────────────────────────────────────────
+
+model Anomaly {
+  id              BigInt   @id @default(autoincrement())
+  organization_id Int
+  timestamp       DateTime @db.Timestamptz
+  z_score         Float
+  iforest_score   Float    @default(0)
+  ewma_score      Float    @default(0)
+  hybrid_score    Float    @default(0)
+  severity        String   @db.VarChar(20)
+  event_count     Int
+  source_entropy  Float    @default(0)
+  burst_ratio     Float    @default(0)
+  status          String   @db.VarChar(50) @default("PENDING")
+  diagnosis       String   @db.Text
+  possible_threat String?  @db.Text
+  threat_confidence Float? @default(0)
+  recommendation  String?  @db.Text
+  detection_method String  @default("ZSCORE") @db.VarChar(50)
+
+  organization    Organization @relation(fields: [organization_id], references: [id])
+  incidents       Incident[]
+
+  @@index([organization_id, timestamp])
+  @@index([severity, status])
+  @@map("anomalies")
+}
+
+// ─── Incidents ─────────────────────────────────────────────────────────────────
+
+model Incident {
+  id              BigInt   @id @default(autoincrement())
+  organization_id Int
+  anomaly_id      BigInt?
+  title           String   @db.VarChar(500)
+  description     String?  @db.Text
+  status          String   @db.VarChar(50) @default("OPEN")
+  severity        String   @db.VarChar(20) @default("MEDIUM")
+  detection_time  DateTime
+  root_cause      String?  @db.Text
+  ai_diagnosis    String?  @db.Text
+  analyst_notes   String?  @db.Text
+  resolution      String?  @db.Text
+  recommended_action String? @db.Text
+  assigned_to     Int?
+  created_by      Int?
+  gemini_summary  String?  @db.Text
+  discord_message_id String? @db.VarChar(255)
+  discord_channel_id String? @db.VarChar(255)
+  mitigation_summary String? @db.Text
+  agent_summary   String?  @db.Text
+  resolution_status String? @db.VarChar(50)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organization_id], references: [id])
+  anomaly         Anomaly?   @relation(fields: [anomaly_id], references: [id])
+
+  @@index([organization_id, detection_time])
+  @@index([status, severity])
+  @@map("incidents")
+}
+
+// ─── Audit Logs ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id              BigInt   @id @default(autoincrement())
+  organization_id Int?
+  user_id         Int?
+  username        String   @db.VarChar(50) @default("system")
+  action          String   @db.VarChar(100)
+  resource        String   @db.VarChar(255) @default("")
+  details         String?  @db.Text
+  ip_address      String   @db.VarChar(45) @default("")
+  timestamp       DateTime @default(now())
+
+  organization    Organization? @relation(fields: [organization_id], references: [id], onDelete: SetNull)
+  user            User?         @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id])
+  @@index([user_id])
+  @@index([action])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+// ─── Connectors ────────────────────────────────────────────────────────────────
+
+model Connector {
+  id                  Int      @id @default(autoincrement())
+  organization_id     Int?
+  name                String   @db.VarChar(255)
+  db_type             String   @db.VarChar(50)
+  host                String?  @db.VarChar(255)
+  port                Int?
+  username            String?  @db.VarChar(255)
+  password_encrypted  String?  @db.Text
+  database_name       String?  @db.VarChar(255)
+  connection_string   String?  @db.Text
+  status              String   @db.VarChar(20) @default("disconnected")
+  last_tested         DateTime?
+  created_at          DateTime @default(now())
+
+  organization        Organization? @relation(fields: [organization_id], references: [id], onDelete: SetNull)
+
+  @@index([organization_id])
+  @@map("connectors")
+}
+
+// ─── Chat Sessions (Copilot) ──────────────────────────────────────────────────
+
+model ChatSession {
+  id              Int      @id @default(autoincrement())
+  organization_id Int?
+  user_id         Int?
+  assistant       String   @db.VarChar(50) @default("analyst")
+  title           String   @db.VarChar(500) @default("")
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  organization    Organization?  @relation(fields: [organization_id], references: [id], onDelete: SetNull)
+  user            User?          @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  messages        ChatMessage[]
+
+  @@index([organization_id])
+  @@index([user_id])
+  @@index([created_at])
+  @@map("chat_sessions")
+}
+
+// ─── Password Reset Tokens ────────────────────────────────────────────────────
+
+model PasswordResetToken {
+  id         Int      @id @default(autoincrement())
+  user_id    Int      @unique
+  token_hash String   @unique @db.VarChar(255)
+  expires_at DateTime @db.Timestamptz
+  created_at DateTime @default(now())
+
+  @@map("password_reset_tokens")
+}
+
+// ─── Email Verification Tokens ─────────────────────────────────────────────────
+
+model EmailVerificationToken {
+  id         Int      @id @default(autoincrement())
+  user_id    Int      @unique
+  token_hash String   @unique @db.VarChar(255)
+  expires_at DateTime @db.Timestamptz
+  created_at DateTime @default(now())
+
+  @@map("email_verification_tokens")
+}
+
+// ─── Chat Messages (Copilot) ──────────────────────────────────────────────────
+
+model ChatMessage {
+  id              Int      @id @default(autoincrement())
+  session_id      Int
+  role            String   @db.VarChar(20)
+  content         String   @db.Text
+  sources         Json?
+  confidence      Float?
+  model_used      String   @db.VarChar(100) @default("")
+  reasoning       String?  @db.Text
+  requires_approval Boolean @default(false)
+  pending_action  String?  @db.VarChar(200)
+  created_at      DateTime @default(now())
+
+  session         ChatSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  @@index([session_id])
+  @@index([created_at])
+  @@map("chat_messages")
+}

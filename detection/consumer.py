@@ -1,3 +1,7 @@
+# Sensitive field encryption protects secrets and credentials only.
+# PII masking is applied during presentation and external exposure only.
+# Operational SOC telemetry remains unencrypted and unmasked internally to preserve detection accuracy and forensic integrity.
+
 import time
 import os
 import sys
@@ -8,7 +12,7 @@ from datetime import datetime
 # Insert parent dir to import modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from storage.db import insert_anomaly, get_db_connection
+from storage.db import insert_anomaly, insert_incident, get_db_connection
 from alerts.discord_alert import trigger_anomaly_discord_alert
 from config import WINDOW_SIZE, Z_SCORE_THRESHOLD, SQLITE_DB, DISCORD_WEBHOOK_URL
 
@@ -86,9 +90,31 @@ def running_detector_loop(db_path=SQLITE_DB, window_size=WINDOW_SIZE, threshold=
                     print(f"\n[Detector] 🚨 ANOMALY BREACH! Z-Score: {z_score:.2f} (Threshold: {threshold})")
                     print(f"[Detector] Event Rate: {current_count} orders/s | Baseline Mean: {mean:.2f} | Std Dev: {std_dev:.2f}")
                     
-                    # 1. Store Anomaly record inside local SQLite
-                    anomaly_id = insert_anomaly(curr_time, z_score, mean, std_dev, current_count, db_path=db_path)
-                    print(f"[Detector] Registered Anomaly #{anomaly_id} inside Local Database.")
+                    # 1. Run local threat classification
+                    from detections.threat_classifier import ThreatClassifier
+                    classifier = ThreatClassifier(db_path=db_path)
+                    possible_threat, threat_confidence, recommendation = classifier.classify(curr_time, current_count, z_score)
+                    
+                    # 2. Store Anomaly record inside local SQLite
+                    anomaly_id = insert_anomaly(
+                        curr_time, z_score, mean, std_dev, current_count,
+                        possible_threat=possible_threat, threat_confidence=threat_confidence,
+                        recommendation=recommendation, db_path=db_path
+                    )
+                    print(f"[Detector] Registered Anomaly #{anomaly_id} inside Local Database. Threat: {possible_threat} ({threat_confidence:.1f}%)")
+                    
+                    # 2b. Create linked Incident record for full lifecycle tracking
+                    severity = "CRITICAL" if z_score > threshold * 2 else "HIGH" if z_score > threshold * 1.5 else "MEDIUM"
+                    title = f"[ZSCORE] {severity} Severity Anomaly Breach #{anomaly_id}"
+                    desc = (f"Z-Score detection triggered at {current_count} events/sec. "
+                            f"Z-Score={z_score:.2f} (threshold: {threshold}), "
+                            f"Window: mean={mean:.2f}, std={std_dev:.2f}.")
+                    incident_id = insert_incident(
+                        anomaly_id, title, desc, severity,
+                        possible_threat=possible_threat, threat_confidence=threat_confidence,
+                        recommendation=recommendation, db_path=db_path
+                    )
+                    print(f"[Detector] Created Incident #{incident_id} for Anomaly #{anomaly_id}.")
                     
                     # 2. Dispatch the rich Discord Webhook alert
                     try:

@@ -33,7 +33,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Database file accessor
-DB_PATH = os.getenv("SQLITE_DB", "storage/events.db")
+mode = os.getenv("MODE")
+if mode == "demo":
+    raw_db_path = "storage/events_demo.db"
+elif mode == "organization":
+    raw_db_path = "storage/events_org.db"
+else:
+    import sys
+    print(f"❌ [Fatal Error] Invalid MODE configuration: '{mode}'. Expected 'demo' or 'organization'.")
+    sys.exit(1)
+
+DB_PATH = os.path.abspath(raw_db_path) if os.path.isabs(raw_db_path) else os.path.abspath(os.path.join(os.getcwd(), raw_db_path))
 
 def load_live_metrics():
     """
@@ -43,7 +53,7 @@ def load_live_metrics():
         return {"opm": 0, "z_score": 0.0, "status": "Steady State", "active_threats": 0}
         
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
         curr = conn.cursor()
         
         # 1. Orders Per Minute (count of orders in last 60s)
@@ -92,7 +102,7 @@ st.sidebar.markdown("---")
 # Manually inject simulation spike
 if st.sidebar.button("💥 Simulate Burst Attack (Inject 25 Orders)", help="Triggers manual high-frequency traffic spike to test detector"):
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
         curr = conn.cursor()
         surge_source = random.choice(["web", "mobile"])
         t_now = time.time()
@@ -130,7 +140,7 @@ with col4:
 st.markdown("### 📈 Live Sliding Window Event Velocity")
 try:
     if os.path.exists(DB_PATH):
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30.0)
         # Pull transactional load of the last 120s
         df = pd.read_sql_query("""
             SELECT CAST(timestamp as INTEGER) as sec, count(*) as count 
@@ -158,7 +168,7 @@ with bottom_col1:
     st.markdown("### 🚨 Detected Anomalies Feed")
     try:
         if os.path.exists(DB_PATH):
-            conn = sqlite3.connect(DB_PATH)
+            conn = sqlite3.connect(DB_PATH, timeout=30.0)
             anom_df = pd.read_sql_query("""
                 SELECT id as ID, timestamp, z_score as Z_Score, event_count as Event_Count, status as Status, diagnosis as AI_Diagnosis 
                 FROM anomalies 
@@ -191,7 +201,7 @@ with bottom_col2:
     st.markdown("### 🤖 Autonomous Agent Trace Explorer")
     try:
         if os.path.exists(DB_PATH):
-            conn = sqlite3.connect(DB_PATH)
+            conn = sqlite3.connect(DB_PATH, timeout=30.0)
             # Find the latest anomaly ID to show traces
             latest_id_df = pd.read_sql_query("SELECT id FROM anomalies ORDER BY id DESC LIMIT 1", conn)
             
