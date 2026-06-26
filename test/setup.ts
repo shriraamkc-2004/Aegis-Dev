@@ -1,14 +1,8 @@
-/**
- * Aegis Enterprise - Test Setup
- * Global test configuration, fixtures, and utilities
- */
-import { PrismaClient } from '../src/generated/prisma/index.js';
+import { getPrismaClient } from '../src/saas/prisma_client';
 import bcrypt from 'bcryptjs';
 
 // Create test database instance using adapter pattern (Prisma v7)
-const prisma = new PrismaClient({
-  log: ['error'],
-});
+const prisma = getPrismaClient();
 
 // Test user fixtures
 export const testUsers = {

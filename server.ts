@@ -44,6 +44,8 @@ import {
   generateToken,
   generateRefreshToken,
   verifyRefreshToken,
+  isRefreshTokenRevoked,
+  revokeRefreshToken,
   authenticateToken,
   requireRole,
   logAudit,
@@ -73,10 +75,14 @@ import { processCopilotResponse, validateCopilotRequest, aiBoundaryMiddleware } 
 // Phase 3A: SaaS Foundation
 import { saasRouter } from "./src/saas/routes.js";
 import { seedSuperAdmin } from "./src/saas/seed.js";
+import { getCached, setCached, invalidateCache } from "./src/redis/cache.js";
+import { requestLoggerMiddleware } from "./src/observability/logger.js";
+
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || "3010");
 
+app.use(requestLoggerMiddleware);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -86,14 +92,8 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
-// Rate Limiting
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5000,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests, please try again later." },
-});
+// Redis-backed Rate Limiters
+import { apiLimiter, authLimiter } from "./src/middleware/rateLimiter.js";
 app.use("/api/", apiLimiter);
 
 // AI Boundary Middleware — attaches boundary headers to copilot requests
@@ -150,7 +150,7 @@ const hybridDetector = new HybridDetector({
 // ========================
 // AUTH ENDPOINTS (Public)
 // ========================
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", authLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -228,11 +228,16 @@ app.get("/api/auth/me", authenticateToken, async (req, res) => {
 });
 
 // Refresh token endpoint
-app.post("/api/auth/refresh", async (req, res) => {
+app.post("/api/auth/refresh", authLimiter, async (req, res) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) {
       res.status(400).json({ error: "Refresh token is required." });
+      return;
+    }
+    const isRevoked = await isRefreshTokenRevoked(refreshToken);
+    if (isRevoked) {
+      res.status(401).json({ error: "Refresh token has been revoked." });
       return;
     }
     const decoded = verifyRefreshToken(refreshToken);
@@ -255,6 +260,8 @@ app.post("/api/auth/refresh", async (req, res) => {
       organization_id: user.organization_id,
       mode: (user as any).mode || "org",
     };
+    // Revoke the old refresh token (rotation)
+    await revokeRefreshToken(refreshToken);
     const newToken = generateToken(authUser);
     const newRefreshToken = generateRefreshToken(authUser);
     res.json({ token: newToken, refreshToken: newRefreshToken });
@@ -265,9 +272,9 @@ app.post("/api/auth/refresh", async (req, res) => {
 
 // ========================
 // COPILOT PROXY ROUTES
-// Proxies chat requests to the Python copilot FastAPI service (port 8100)
+// Proxies chat requests to the Python copilot FastAPI service (port 8110)
 // ========================
-const COPILOT_URL = process.env.COPILOT_URL || "http://localhost:8100";
+const COPILOT_URL = process.env.COPILOT_URL || "http://localhost:8110";
 
 app.post("/api/copilot/chat", authenticateToken, async (req, res) => {
   try {
@@ -353,7 +360,7 @@ app.post("/api/copilot/chat", authenticateToken, async (req, res) => {
     res.status(503).json({
       error: "Copilot service unavailable",
       detail: err.message,
-      fallback: "The Security Copilot service is currently offline. Please ensure the copilot service is running on port 8100.",
+      fallback: "The Security Copilot service is currently offline. Please ensure the copilot service is running on port 8110.",
     });
   }
 });
@@ -1021,10 +1028,53 @@ app.post("/api/organizations", authenticateToken, requireRole("super_admin"), as
 });
 
 // ========================
+// HEALTH CHECK (Public)
+// ========================
+app.get("/api/health", async (req, res) => {
+  try {
+    let dbHealthy = false;
+    try {
+      const { getPrismaClient } = await import("./src/saas/prisma_client.js");
+      const prisma = getPrismaClient();
+      await prisma.$queryRaw`SELECT 1`;
+      dbHealthy = true;
+    } catch (e) {
+      console.error("[Health Check] DB check failed:", e);
+    }
+
+    let redisHealthy = false;
+    try {
+      const { checkRedisHealth } = await import("./src/redis/client.js");
+      redisHealthy = await checkRedisHealth();
+    } catch (e) {
+      console.error("[Health Check] Redis check failed:", e);
+    }
+
+    const healthy = dbHealthy && redisHealthy;
+    res.status(healthy ? 200 : 500).json({
+      status: healthy ? "healthy" : "unhealthy",
+      database: dbHealthy ? "connected" : "disconnected",
+      redis: redisHealthy ? "connected" : "disconnected",
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================
 // METRICS (Protected)
 // ========================
 app.get("/api/metrics", authenticateToken, async (req, res) => {
   try {
+    const orgId = getOrgId(req.user!);
+    const cacheKey = `metrics:org:${orgId}`;
+    const cachedData = await getCached<any>(cacheKey);
+    if (cachedData) {
+      res.json(cachedData);
+      return;
+    }
+
     const cutoff = Date.now() / 1000 - 60;
     const countRow = await dbGet<{ total: number }>(
       "SELECT COUNT(*) as total FROM events WHERE timestamp >= ?",
@@ -1056,7 +1106,7 @@ app.get("/api/metrics", authenticateToken, async (req, res) => {
       "SELECT COUNT(*) as total, SUM(CASE WHEN status='OPEN' THEN 1 ELSE 0 END) as open_count, SUM(CASE WHEN severity='CRITICAL' THEN 1 ELSE 0 END) as critical_count FROM incidents"
     );
 
-    res.json({
+    const result = {
       opm,
       currentRate: currentEventRate,
       mean: parseFloat(currentMean.toFixed(2)),
@@ -1080,7 +1130,10 @@ app.get("/api/metrics", authenticateToken, async (req, res) => {
         ewma_alpha: engineSettings.EWMA_ALPHA,
         ...hybridDetector.getStatus(),
       },
-    });
+    };
+
+    await setCached(cacheKey, result, 10); // Cache metrics for 10 seconds
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1149,7 +1202,16 @@ app.get("/api/alerts/acknowledge", authenticateToken, async (req, res) => {
 // ========================
 app.get("/api/anomalies", authenticateToken, async (req, res) => {
   try {
+    const orgId = getOrgId(req.user!);
+    const cacheKey = `anomalies:org:${orgId}`;
+    const cachedData = await getCached<any>(cacheKey);
+    if (cachedData) {
+      res.json(cachedData);
+      return;
+    }
+
     const rows = await dbAll("SELECT * FROM anomalies ORDER BY id DESC LIMIT 25");
+    await setCached(cacheKey, rows, 30); // Cache anomalies for 30 seconds
     res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1240,12 +1302,21 @@ app.post("/api/trigger-spike", authenticateToken, requireRole("super_admin", "or
 // ========================
 app.get("/api/incidents", authenticateToken, async (req, res) => {
   try {
+    const orgId = getOrgId(req.user!);
+    const cacheKey = `incidents:org:${orgId}`;
+    const cachedData = await getCached<any>(cacheKey);
+    if (cachedData) {
+      res.json(cachedData);
+      return;
+    }
+
     const rows = await dbAll(
       `SELECT i.*, a.z_score, a.iforest_score, a.ewma_score, a.hybrid_score, a.detection_method, a.event_count as anomaly_event_count, a.source_entropy, a.burst_ratio
        FROM incidents i
        LEFT JOIN anomalies a ON i.anomaly_id = a.id
        ORDER BY i.created_at DESC LIMIT 50`
     );
+    await setCached(cacheKey, rows, 30); // Cache incidents for 30 seconds
     res.json(rows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1259,11 +1330,16 @@ app.post("/api/incidents", authenticateToken, requireRole("super_admin", "org_ad
       res.status(400).json({ error: "Title is required." });
       return;
     }
+    const orgId = getOrgId(req.user!);
     const result = await dbRun(
       "INSERT INTO incidents (title, description, severity, anomaly_id, detection_time, created_by, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [title, description || "", severity || "MEDIUM", anomaly_id || null, Date.now() / 1000, req.user!.id, getOrgId(req.user!)]
+      [title, description || "", severity || "MEDIUM", anomaly_id || null, Date.now() / 1000, req.user!.id, orgId]
     );
-    await logAudit(req.user!.id, req.user!.username, "CREATE_INCIDENT", "incidents", `Created incident: ${title}`, req.ip || "", getOrgId(req.user!));
+    await logAudit(req.user!.id, req.user!.username, "CREATE_INCIDENT", "incidents", `Created incident: ${title}`, req.ip || "", orgId);
+    
+    // Invalidate incidents cache
+    await invalidateCache(`incidents:org:${orgId}`);
+    
     res.json({ id: result.lastID, title });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1296,8 +1372,13 @@ app.put("/api/incidents/:id", authenticateToken, requireRole("super_admin", "org
     values.push(Date.now() / 1000);
     values.push(req.params.id);
 
+    const orgId = getOrgId(req.user!);
     await dbRun(`UPDATE incidents SET ${updates.join(", ")} WHERE id = ?`, values);
-    await logAudit(req.user!.id, req.user!.username, "UPDATE_INCIDENT", "incidents", `Updated incident #${req.params.id}`, req.ip || "", getOrgId(req.user!));
+    await logAudit(req.user!.id, req.user!.username, "UPDATE_INCIDENT", "incidents", `Updated incident #${req.params.id}`, req.ip || "", orgId);
+    
+    // Invalidate incidents cache
+    await invalidateCache(`incidents:org:${orgId}`);
+    
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2126,6 +2207,75 @@ function stopScenarioEngine() {
   }
 }
 
+let copilotServerProcess: any = null;
+let isStartingCopilotServer = false;
+
+function startCopilotServer() {
+  if (copilotServerProcess) {
+    return;
+  }
+  if (isStartingCopilotServer) {
+    return;
+  }
+  isStartingCopilotServer = true;
+  console.log("[Copilot] Starting Python Copilot Server (python -m copilot.server)...");
+
+  const pythonCmd = process.platform === "win32" ? "python" : "python3";
+  const env = { ...process.env, PYTHONIOENCODING: "utf-8" };
+
+  copilotServerProcess = spawn(pythonCmd, ["-m", "copilot.server"], {
+    env,
+    stdio: "inherit"
+  });
+
+  copilotServerProcess.on("spawn", () => {
+    isStartingCopilotServer = false;
+  });
+
+  copilotServerProcess.on("error", (err: any) => {
+    console.error("[Copilot] Python Copilot Server failed to spawn:", err.message);
+    copilotServerProcess = null;
+    isStartingCopilotServer = false;
+  });
+
+  copilotServerProcess.on("close", (code: number) => {
+    console.log(`[Copilot] Python Copilot Server exited with code ${code}`);
+    copilotServerProcess = null;
+    isStartingCopilotServer = false;
+    if (process.env.MODE === "demo") {
+      console.log("[Copilot] Restarting Python Copilot Server in 5 seconds...");
+      setTimeout(startCopilotServer, 5000);
+    }
+  });
+}
+
+function stopCopilotServer() {
+  if (copilotServerProcess) {
+    console.log("[Copilot] Stopping Python Copilot Server process...");
+    copilotServerProcess.kill();
+    copilotServerProcess = null;
+    isStartingCopilotServer = false;
+  }
+}
+
+process.on("exit", () => {
+  if (scenarioEngineProcess) scenarioEngineProcess.kill();
+  if (copilotServerProcess) copilotServerProcess.kill();
+});
+
+process.on("SIGINT", () => {
+  if (scenarioEngineProcess) scenarioEngineProcess.kill();
+  if (copilotServerProcess) copilotServerProcess.kill();
+  process.exit();
+});
+
+process.on("SIGTERM", () => {
+  if (scenarioEngineProcess) scenarioEngineProcess.kill();
+  if (copilotServerProcess) copilotServerProcess.kill();
+  process.exit();
+});
+
+
 function startProducerLoop() {
   // Skip simulated event generation if an external connector is actively ingesting
   if (activeIngestConnectorId) {
@@ -2370,6 +2520,7 @@ async function startServer() {
 
   if (process.env.MODE === "demo") {
     startScenarioEngine();
+    startCopilotServer();
 
     // Staged Verification: Stage 1 - Telemetry Flow Verification at 60s
     console.log("[Audit System] Stage 1 Telemetry flow verification scheduled in 60 seconds...");

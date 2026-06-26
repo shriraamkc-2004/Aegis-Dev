@@ -9,6 +9,11 @@ import bcrypt from "bcryptjs";
 import { getPrismaClient, isPostgresConnected } from "./prisma_client.js";
 
 export async function seedSuperAdmin(): Promise<void> {
+  if (process.env.MODE === "demo") {
+    console.log("[Seed] Skipping SuperAdmin PostgreSQL seeding in Demo Mode.");
+    return;
+  }
+
   const connected = await isPostgresConnected();
   if (!connected) {
     console.warn("[Seed] PostgreSQL unavailable. Skipping SuperAdmin seed.");

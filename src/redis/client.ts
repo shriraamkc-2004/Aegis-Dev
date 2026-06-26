@@ -8,6 +8,7 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 const redis = new Redis(REDIS_URL, {
   maxRetriesPerRequest: null, // Required for BullMQ
+  enableOfflineQueue: false,  // Fail immediately instead of hanging when Redis is offline
   retryStrategy: (times) => {
     const delay = Math.min(times * 50, 2000);
     return delay;

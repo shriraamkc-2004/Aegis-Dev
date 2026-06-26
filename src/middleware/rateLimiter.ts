@@ -28,7 +28,35 @@ const ENDPOINT_LIMITS = {
 };
 
 // Type-safe sendCommand wrapper for rate-limit-redis
-const sendCommand: any = (...args: string[]) => (redis as any).call(...args);
+const sendCommand: any = (...args: string[]) => {
+  if ((redis as any).status !== 'ready') {
+    return Promise.resolve('');
+  }
+  return (redis as any).call(...args);
+};
+
+// Helper to create a rate limiter with dynamic Redis-to-Memory fallback
+function createDynamicLimiter(options: any, prefix: string) {
+  const redisLimiter = rateLimit({
+    ...options,
+    store: new RedisStore({
+      sendCommand,
+      prefix
+    })
+  });
+
+  const memoryLimiter = rateLimit({
+    ...options
+  });
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    if ((redis as any).status === 'ready') {
+      redisLimiter(req, res, next);
+    } else {
+      memoryLimiter(req, res, next);
+    }
+  };
+}
 
 // Create role-based rate limiter
 export function createRoleBasedLimiter() {
@@ -37,12 +65,9 @@ export function createRoleBasedLimiter() {
     if (!user) return next();
     
     const limits = ROLE_LIMITS[user.role] || ROLE_LIMITS.executive_viewer;
+    const prefix = `rate_limit:${user.id}:`;
     
-    const limiter = rateLimit({
-      store: new RedisStore({
-        sendCommand,
-        prefix: `rate_limit:${user.id}:`
-      }),
+    const options = {
       windowMs: limits.windowMs,
       max: limits.max,
       message: {
@@ -53,9 +78,16 @@ export function createRoleBasedLimiter() {
       legacyHeaders: false,
       skipSuccessfulRequests: false,
       skipFailedRequests: false
-    });
-    
-    limiter(req, res, next);
+    };
+
+    if ((redis as any).status === 'ready') {
+      rateLimit({
+        store: new RedisStore({ sendCommand, prefix }),
+        ...options
+      })(req, res, next);
+    } else {
+      rateLimit(options)(req, res, next);
+    }
   };
 }
 
@@ -66,11 +98,7 @@ export function createEndpointLimiter(endpoint: string) {
     return (req: Request, res: Response, next: NextFunction) => next();
   }
   
-  const limiter = rateLimit({
-    store: new RedisStore({
-      sendCommand,
-      prefix: `rate_limit:${endpoint}:`
-    }),
+  return createDynamicLimiter({
     windowMs: limits.windowMs,
     max: limits.max,
     message: {
@@ -79,17 +107,11 @@ export function createEndpointLimiter(endpoint: string) {
     },
     standardHeaders: true,
     legacyHeaders: false
-  });
-  
-  return limiter;
+  }, `rate_limit:${endpoint}:`);
 }
 
 // Global rate limiter (fallback for unauthenticated requests)
-export const globalLimiter = rateLimit({
-  store: new RedisStore({
-    sendCommand,
-    prefix: 'rate_limit:global:'
-  }),
+export const globalLimiter = createDynamicLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // 100 requests per window
   message: {
@@ -98,14 +120,10 @@ export const globalLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false
-});
+}, 'rate_limit:global:');
 
 // Strict limiter for authentication endpoints
-export const authLimiter = rateLimit({
-  store: new RedisStore({
-    sendCommand,
-    prefix: 'rate_limit:auth:'
-  }),
+export const authLimiter = createDynamicLimiter({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 10, // 10 attempts per window
   message: {
@@ -115,14 +133,10 @@ export const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true // Don't count successful logins
-});
+}, 'rate_limit:auth:');
 
 // API limiter for high-volume endpoints
-export const apiLimiter = rateLimit({
-  store: new RedisStore({
-    sendCommand,
-    prefix: 'rate_limit:api:'
-  }),
+export const apiLimiter = createDynamicLimiter({
   windowMs: 60 * 1000, // 1 minute
   max: 1000, // 1000 requests per minute
   message: {
@@ -131,4 +145,4 @@ export const apiLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false
-});
+}, 'rate_limit:api:');

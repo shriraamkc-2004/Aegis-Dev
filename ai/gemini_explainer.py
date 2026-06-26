@@ -5,6 +5,7 @@
 import os
 import json
 import requests
+import time
 
 class GeminiExplainer:
     """
@@ -45,28 +46,46 @@ class GeminiExplainer:
         - Output ONLY valid JSON.
         """
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}"
+        models = ["gemini-2.5-flash", "gemini-1.5-flash"]
         headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "temperature": 0.2
+        last_exception = None
+
+        for model in models:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": 0.2
+                }
             }
-        }
+            
+            delay = 1.0
+            for attempt in range(3):
+                try:
+                    r = requests.post(url, headers=headers, json=payload, timeout=8)
+                    if r.status_code == 200:
+                        res_json = r.json()
+                        content = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+                        explanation_data = json.loads(content)
+                        
+                        # Strict JSON validation
+                        required_keys = ["executive_summary", "technical_explanation", "business_impact", "recommended_actions"]
+                        if all(k in explanation_data for k in required_keys) and isinstance(explanation_data["recommended_actions"], list):
+                            return self._format_explanation(explanation_data)
+                        else:
+                            print(f"[Gemini Explainer] Schema validation failed for model {model} response. Retrying.")
+                    else:
+                        print(f"[Gemini Explainer] Gemini API returned status: {r.status_code} for model {model}.")
+                except Exception as e:
+                    last_exception = e
+                    print(f"[Gemini Explainer] Attempt {attempt + 1} failed for model {model}: {e}")
+                
+                if attempt < 2:
+                    time.sleep(delay)
+                    delay *= 2
 
-        try:
-            r = requests.post(url, headers=headers, json=payload, timeout=8)
-            if r.status_code == 200:
-                res_json = r.json()
-                content = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
-                explanation_data = json.loads(content)
-                return self._format_explanation(explanation_data)
-            else:
-                print(f"[Gemini Explainer] Gemini API returned status: {r.status_code}. Falling back.")
-        except Exception as e:
-            print(f"[Gemini Explainer] Error calling Gemini API: {e}. Falling back.")
-
+        print(f"[Gemini Explainer] All model calls failed or returned invalid schemas. Last exception: {last_exception}. Falling back.")
         return self._get_local_fallback(possible_threat, severity, z_score, hybrid_score)
 
     def _format_explanation(self, data):

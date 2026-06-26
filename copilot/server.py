@@ -532,6 +532,7 @@ async def save_chat_message(
 
 # ─── Health ──────────────────────────────────────────────────────────────────────
 
+@app.get("/health")
 @app.get("/api/copilot/health")
 async def health_check():
     """Service health endpoint."""

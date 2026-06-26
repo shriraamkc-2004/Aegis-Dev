@@ -102,8 +102,8 @@ services:
   # ─── Python Copilot Service ──────────────────────────────────────────────────
   copilot:
     build:
-      context: ./copilot
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: copilot/Dockerfile
     container_name: aegis-copilot
     restart: unless-stopped
     env_file:

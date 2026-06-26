@@ -54,8 +54,8 @@ export const eventWorker = new Worker<EventJobData>(
     const { event_type, source, timestamp, organization_id, raw_data } = job.data;
     
     // Import Prisma client dynamically to avoid circular dependencies
-    const { PrismaClient } = await import('../generated/prisma/index.js');
-    const prisma = new PrismaClient();
+    const { getPrismaClient } = await import('../saas/prisma_client.js');
+    const prisma = getPrismaClient();
     
     try {
       await prisma.telemetryEvent.create({
@@ -98,8 +98,9 @@ export const detectionWorker = new Worker<DetectionJobData>(
     const detector = new HybridDetector({ iforestEnabled: true });
     
     // Run detection cycle
-    const { PrismaClient } = await import('../generated/prisma/index.js');
-    const prisma = new PrismaClient();
+    // Import Prisma client dynamically to avoid circular dependencies
+    const { getPrismaClient } = await import('../saas/prisma_client.js');
+    const prisma = getPrismaClient();
     
     try {
       const cutoff = new Date(Date.now() - 60 * 1000); // Last 60 seconds

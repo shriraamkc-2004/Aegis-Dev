@@ -48,6 +48,8 @@ export function generateRefreshToken(user: AuthUser): string {
   );
 }
 
+import redis from "./redis/client.js";
+
 // Verify refresh token
 export function verifyRefreshToken(token: string): AuthUser | null {
   try {
@@ -56,6 +58,28 @@ export function verifyRefreshToken(token: string): AuthUser | null {
     return decoded as AuthUser;
   } catch {
     return null;
+  }
+}
+
+// Check if refresh token is blacklisted/revoked in Redis
+export async function isRefreshTokenRevoked(token: string): Promise<boolean> {
+  try {
+    const hash = crypto.createHash("sha256").update(token).digest("hex");
+    const val = await redis.get(`blacklist:${hash}`);
+    return val === "true";
+  } catch (err) {
+    console.warn("[Auth SDK] Redis blacklist query failure:", err);
+    return false;
+  }
+}
+
+// Revoke a refresh token in Redis
+export async function revokeRefreshToken(token: string, expirySeconds: number = 7 * 24 * 3600): Promise<void> {
+  try {
+    const hash = crypto.createHash("sha256").update(token).digest("hex");
+    await redis.set(`blacklist:${hash}`, "true", "EX", expirySeconds);
+  } catch (err) {
+    console.warn("[Auth SDK] Redis blacklist insert failure:", err);
   }
 }
 

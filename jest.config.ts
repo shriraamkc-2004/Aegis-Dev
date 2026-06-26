@@ -90,6 +90,7 @@ const config: Config = {
   
   // Module name mapper
   moduleNameMapper: {
+    '^(\\.\\.?/.*)\\.js$': '$1',
     '^@/(.*)$': '<rootDir>/src/$1'
   }
 };

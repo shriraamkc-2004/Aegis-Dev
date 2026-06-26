@@ -97,6 +97,29 @@ export const DEFAULT_PROMPTS: Omit<PromptEntry, "id" | "created_at" | "updated_a
     reviewed_by: null,
     created_by: null,
   },
+  {
+    tenant_id: 1,
+    name: "react_agent",
+    version: 1,
+    category: "system",
+    prompt_template:
+      "You are the autonomous Aegis ReAct AI Agent. Your objective is investigate and solve Anomaly ID #{{anomalyId}} using our local tool server.\n" +
+      "Available tools metadata:\n{{mcpToolsDesc}}\n\n" +
+      "You MUST proceed strictly by outputting steps in the following formatting block:\n" +
+      "Thought: <what you are reasoning>\n" +
+      "Action: <json representation of tool call, e.g. {\"name\": \"query_database\", \"arguments\": {\"sql_query\": \"SELECT ...\"}} >\n" +
+      "Observation: <this will be provided in the next turn>\n\n" +
+      "When the issue is resolved or you are summarizing, output:\n" +
+      "Final Response: <your ultimate diagnosis and security mitigation summary>\n\n" +
+      "IMPORTANT: Do not duplicate or combine blocks. Exit immediately when producing a \"Final Response:\".\n" +
+      "Begin by inspecting recent event rates with a SELECT query via query_database.",
+    system_hint: "ReAct agent persona active. Enforce ReAct format rules.",
+    variables: {},
+    is_active: true,
+    governance_reviewed: true,
+    reviewed_by: null,
+    created_by: null,
+  },
 ];
 
 // ─── Prompt Registry Service ────────────────────────────────────────────────────

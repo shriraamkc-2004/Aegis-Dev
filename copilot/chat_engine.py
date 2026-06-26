@@ -223,25 +223,48 @@ class ChatEngine:
     # ─── Gemini Call ─────────────────────────────────────────────────────────────
 
     def _call_gemini(self, system_prompt: str, user_message: str) -> str:
-        """Call Gemini for response generation."""
+        """Call Gemini for response generation with exponential retries and fallbacks."""
         if not self._gemini_client:
             return self._fallback_response(user_message)
 
-        try:
-            response = self._gemini_client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=[
-                    {"role": "user", "parts": [{"text": system_prompt + "\n\nUser Question: " + user_message}]},
-                ],
-                config={
-                    "temperature": RAI_TEMPERATURE,
-                    "max_output_tokens": RAI_MAX_RESPONSE_TOKENS,
-                },
-            )
-            return response.text or self._fallback_response(user_message)
-        except Exception as exc:
-            logger.error("Gemini chat error: %s", exc)
-            return self._fallback_response(user_message)
+        models = [GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.0-flash"]
+        # De-duplicate list while preserving order
+        unique_models = []
+        for m in models:
+            if m not in unique_models:
+                unique_models.append(m)
+
+        last_error = None
+        for model_name in unique_models:
+            delay = 1.0
+            for attempt in range(3):
+                try:
+                    response = self._gemini_client.models.generate_content(
+                        model=model_name,
+                        contents=[
+                            {"role": "user", "parts": [{"text": system_prompt + "\n\nUser Question: " + user_message}]},
+                        ],
+                        config={
+                            "temperature": RAI_TEMPERATURE,
+                            "max_output_tokens": RAI_MAX_RESPONSE_TOKENS,
+                        },
+                    )
+                    if response.text:
+                        return response.text
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning(
+                        "Gemini generation failed for model %s (attempt %d/3): %s",
+                        model_name,
+                        attempt + 1,
+                        exc,
+                    )
+                    if attempt < 2:
+                        time.sleep(delay)
+                        delay *= 2
+
+        logger.error("All Gemini model attempts failed. Last error: %s", last_error)
+        return self._fallback_response(user_message)
 
     def _fallback_response(self, user_message: str) -> str:
         """Deterministic fallback when Gemini is unavailable."""

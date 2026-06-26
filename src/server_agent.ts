@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { dbRun, dbAll, dbGet, dbAllReadOnly } from "./server_db.js";
 import { triggerAnomalyDiscordAlert } from "./discord_alert.js";
+import { promptRegistry } from "./copilot/prompt_registry.js";
 
 // Helper to log a reasoning step to db
 export async function logServerAgentStep(anomalyId: number, step: number, type: string, content: string) {
@@ -333,7 +334,7 @@ export async function runServerAgentLoop(anomalyId: number, currentSpikeCount: n
     }
   } catch (_) {}
 
-  // Local helper to execute Gemini logic
+  // Local helper to execute Gemini logic with retries and fallback models
   const attemptGemini = async (): Promise<boolean> => {
     try {
       console.log("[ReAct Agent] Key verified. Initializing Live Gemini ReAct loop...");
@@ -389,7 +390,21 @@ export async function runServerAgentLoop(anomalyId: number, currentSpikeCount: n
         }
       ];
 
-      const systemPrompt = `You are the autonomous Aegis ReAct AI Agent. Your objective is investigate and solve Anomaly ID #${anomalyId} using our local tool server.
+      // Retrieve prompt template from registry or use fallback
+      let systemPrompt = "";
+      try {
+        const activePrompt = await promptRegistry.getActivePrompt(1, "react_agent");
+        if (activePrompt) {
+          systemPrompt = activePrompt.prompt_template
+            .replace("{{anomalyId}}", anomalyId.toString())
+            .replace("{{mcpToolsDesc}}", JSON.stringify(mcpToolsDesc, null, 2));
+        }
+      } catch (err) {
+        console.error("[ReAct Agent] Failed to retrieve prompt template from registry. Using fallback.", err);
+      }
+
+      if (!systemPrompt) {
+        systemPrompt = `You are the autonomous Aegis ReAct AI Agent. Your objective is investigate and solve Anomaly ID #${anomalyId} using our local tool server.
 Available tools metadata:
 ${JSON.stringify(mcpToolsDesc, null, 2)}
 
@@ -403,22 +418,57 @@ Final Response: <your ultimate diagnosis and security mitigation summary>
 
 IMPORTANT: Do not duplicate or combine blocks. Exit immediately when producing a "Final Response:".
 Begin by inspecting recent event rates with a SELECT query via query_database.`;
+      }
 
       let messages = [{ role: "user", parts: [{ text: systemPrompt }] }];
       let step = 1;
 
-      for (let iteration = 0; iteration < 4; iteration++) {
-        const response = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: messages,
-          config: {
-            temperature: 0.1,
-            maxOutputTokens: 800
-          }
-        });
+      // Exponential retry logic helper
+      const generateWithRetry = async (contents: any, retries = 3, initialDelay = 1000): Promise<{ text: string; model: string; responseTime: number }> => {
+        const models = ["gemini-3.5-flash", "gemini-2.5-flash"];
+        let lastError: any = null;
 
-        const responseText = response.text || "";
-        console.log(`--- Gemini Agent Step ${step} ---\n${responseText}\n-----------------`);
+        for (const modelToUse of models) {
+          let delay = initialDelay;
+          for (let attempt = 0; attempt < retries; attempt++) {
+            const startTime = Date.now();
+            try {
+              const res = await ai.models.generateContent({
+                model: modelToUse,
+                contents,
+                config: {
+                  temperature: 0.1,
+                  maxOutputTokens: 800
+                }
+              });
+              const responseTime = Date.now() - startTime;
+              
+              // Simple audit logging for token and response metadata
+              const tokens = (res as any).usageMetadata?.totalTokenCount || 0;
+              console.log(`[ReAct AI Audit] Model: ${modelToUse} | Latency: ${responseTime}ms | Tokens: ${tokens}`);
+              
+              return {
+                text: res.text || "",
+                model: modelToUse,
+                responseTime
+              };
+            } catch (err: any) {
+              lastError = err;
+              console.warn(`[ReAct Gemini Attempt Failed] Model: ${modelToUse} | Attempt: ${attempt + 1} | Error: ${err.message || err}`);
+              if (attempt < retries - 1) {
+                await new Promise(resolve => setTimeout(resolve, delay));
+                delay *= 2;
+              }
+            }
+          }
+        }
+        throw lastError;
+      };
+
+      for (let iteration = 0; iteration < 4; iteration++) {
+        const { text: responseText, model: modelUsed } = await generateWithRetry(messages);
+
+        console.log(`--- Gemini Agent Step ${step} (Model: ${modelUsed}) ---\n${responseText}\n-----------------`);
 
         // Extract parts from response
         const lines = responseText.split("\n");
@@ -433,12 +483,20 @@ Begin by inspecting recent event rates with a SELECT query via query_database.`;
             const jsonStr = line.replace("Action:", "").trim();
             try {
               actionObject = JSON.parse(jsonStr);
+              // Basic schema validation for tool calls
+              if (!actionObject.name || typeof actionObject.name !== "string") {
+                actionObject = null;
+              }
             } catch (_) {
               const start = jsonStr.indexOf("{");
               const end = jsonStr.lastIndexOf("}");
               if (start !== -1 && end !== -1) {
                 try {
-                  actionObject = JSON.parse(jsonStr.substring(start, end + 1));
+                  const cleanedJson = jsonStr.substring(start, end + 1);
+                  actionObject = JSON.parse(cleanedJson);
+                  if (!actionObject.name || typeof actionObject.name !== "string") {
+                    actionObject = null;
+                  }
                 } catch (_) {}
               }
             }

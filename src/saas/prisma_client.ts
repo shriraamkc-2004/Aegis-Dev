@@ -8,6 +8,7 @@
 
 import { PrismaClient } from "../generated/prisma/index.js";
 import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 
 let prismaInstance: PrismaClient | null = null;
 
@@ -23,7 +24,11 @@ function buildDatabaseUrl(): string {
 
 export function getPrismaClient(): PrismaClient {
   if (!prismaInstance) {
-    const adapter = new PrismaPg({ connectionString: buildDatabaseUrl() });
+    const connStr = buildDatabaseUrl();
+    console.log("PRISMA CLIENT: Connecting to", connStr);
+    const pool = new pg.Pool({ connectionString: connStr });
+    const adapter = new PrismaPg(pool);
+    console.log("PRISMA CLIENT: Created adapter:", adapter ? typeof adapter : "undefined", adapter);
     prismaInstance = new PrismaClient({
       adapter,
       log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],

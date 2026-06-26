@@ -282,7 +282,7 @@ export class HealthMonitorService {
     const start = Date.now();
 
     try {
-      const copilotUrl = process.env.COPILOT_URL || "http://localhost:8100";
+      const copilotUrl = process.env.COPILOT_URL || "http://localhost:8110";
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
