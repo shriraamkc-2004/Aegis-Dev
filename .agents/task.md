@@ -1,0 +1,7 @@
+- [x] Install dependencies (`husky`, `lint-staged`, `@commitlint/cli`, `@commitlint/config-conventional`, `prettier`)
+- [x] Initialize Husky git hooks
+- [x] Create `.commitlintrc.json` configuration
+- [x] Create `.lintstagedrc.json` configuration
+- [x] Set up pre-commit, commit-msg, and pre-push hooks under `.husky/`
+- [x] Update `package.json` with husky prepare script
+- [/] Verify the hooks work correctly
