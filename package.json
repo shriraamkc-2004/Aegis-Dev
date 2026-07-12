@@ -11,8 +11,8 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "jest test/unit/cache.test.ts test/unit/logger.test.ts test/unit/prompt_registry.test.ts test/unit/disaster_recovery.test.ts test/unit/enterprise_ops.test.ts --config jest.config.test.ts",
-    "test:unit": "jest test/unit/cache.test.ts test/unit/logger.test.ts test/unit/prompt_registry.test.ts test/unit/disaster_recovery.test.ts test/unit/enterprise_ops.test.ts --config jest.config.test.ts",
+    "test": "jest test/unit/cache.test.ts test/unit/logger.test.ts test/unit/prompt_registry.test.ts test/unit/disaster_recovery.test.ts test/unit/enterprise_ops.test.ts test/unit/realtime_detector.test.ts test/unit/foundation.test.ts --config jest.config.test.ts",
+    "test:unit": "jest test/unit/cache.test.ts test/unit/logger.test.ts test/unit/prompt_registry.test.ts test/unit/disaster_recovery.test.ts test/unit/enterprise_ops.test.ts test/unit/realtime_detector.test.ts test/unit/foundation.test.ts --config jest.config.test.ts",
     "prepare": "husky"
   },
   "dependencies": {

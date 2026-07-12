@@ -1,14 +1,21 @@
 /**
- * Aegis Hybrid Anomaly Detection Engine
- * 
- * Layer 1: Z-Score (fast, univariate spike detection — existing)
- * Layer 2: Isolation Forest (multivariate, non-parametric deep analysis)
- * Layer 3: EWMA (Exponentially Weighted Moving Average — adaptive trend)
- * 
- * All layers feed into a fused severity classifier.
+ * Aegis Hybrid Anomaly Detection Engine — Real-Time Refactored
+ *
+ * Layer 1: Z-Score (real-time rolling)
+ * Layer 2: Isolation Forest (inference per event, background retrained)
+ * Layer 3: EWMA (Exponentially Weighted Moving Average — per event adaptive trend)
+ *
+ * Uses the Real-Time Context Engine for zero-I/O in-memory feature extraction.
  */
 
-import { dbAll } from "./server_db.js";
+import { contextEngine } from "./copilot/rolling_context.js";
+import { detectionOrchestrator } from "./detection_orchestrator.js";
+import {
+  RuleEngineModule,
+  IsolationForestModule,
+  BehavioralEngineModule,
+  RiskEngineModule,
+} from "./detection/modules.js";
 
 // ============================================================
 // ISOLATION FOREST — Pure TypeScript Implementation
@@ -35,29 +42,32 @@ const DEFAULT_IFOREST_CONFIG: IsolationForestConfig = {
   maxDepth: 8,
 };
 
-/** Average path length c(n) for normalization — harmonic number approximation */
 function averagePathLength(n: number): number {
   if (n <= 1) return 0;
   if (n === 2) return 1;
   const eulerGamma = 0.5772156649;
-  return 2 * (Math.log(n - 1) + eulerGamma) - 2 * (n - 1) / n;
+  return 2 * (Math.log(n - 1) + eulerGamma) - (2 * (n - 1)) / n;
 }
 
-/** Build a single isolation tree recursively */
-function buildTree(data: number[][], depth: number, maxDepth: number): ITreeNode {
+function buildTree(
+  data: number[][],
+  depth: number,
+  maxDepth: number,
+): ITreeNode {
   const n = data.length;
 
-  // External node conditions
   if (depth >= maxDepth || n <= 1) {
     return { size: n, isExternal: true };
   }
 
-  // Check if all points are identical
   const nFeatures = data[0].length;
   let allSame = true;
   for (let i = 1; i < n; i++) {
     for (let f = 0; f < nFeatures; f++) {
-      if (data[i][f] !== data[0][f]) { allSame = false; break; }
+      if (data[i][f] !== data[0][f]) {
+        allSame = false;
+        break;
+      }
     }
     if (!allSame) break;
   }
@@ -65,19 +75,18 @@ function buildTree(data: number[][], depth: number, maxDepth: number): ITreeNode
     return { size: n, isExternal: true };
   }
 
-  // Pick a random feature that has variance
   const featureOrder = Array.from({ length: nFeatures }, (_, i) => i);
-  // Shuffle
   for (let i = featureOrder.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [featureOrder[i], featureOrder[j]] = [featureOrder[j], featureOrder[i]];
   }
 
   let splitFeature = -1;
-  let minVal = 0, maxVal = 0;
+  let minVal = 0,
+    maxVal = 0;
 
   for (const f of featureOrder) {
-    const vals = data.map(row => row[f]);
+    const vals = data.map((row) => row[f]);
     minVal = Math.min(...vals);
     maxVal = Math.max(...vals);
     if (maxVal > minVal) {
@@ -90,13 +99,11 @@ function buildTree(data: number[][], depth: number, maxDepth: number): ITreeNode
     return { size: n, isExternal: true };
   }
 
-  // Random split value between min and max
   const splitValue = minVal + Math.random() * (maxVal - minVal);
 
-  const leftData = data.filter(row => row[splitFeature] < splitValue);
-  const rightData = data.filter(row => row[splitFeature] >= splitValue);
+  const leftData = data.filter((row) => row[splitFeature] < splitValue);
+  const rightData = data.filter((row) => row[splitFeature] >= splitValue);
 
-  // Safety: if split doesn't actually separate, make external
   if (leftData.length === 0 || rightData.length === 0) {
     return { size: n, isExternal: true };
   }
@@ -111,7 +118,6 @@ function buildTree(data: number[][], depth: number, maxDepth: number): ITreeNode
   };
 }
 
-/** Compute path length for a single point through a tree */
 function pathLength(point: number[], node: ITreeNode, depth: number): number {
   if (node.isExternal) {
     return depth + averagePathLength(node.size);
@@ -134,10 +140,8 @@ export class IsolationForest {
     this.config = { ...DEFAULT_IFOREST_CONFIG, ...config };
   }
 
-  /** Train the forest on historical feature vectors */
   train(data: number[][]): void {
     if (data.length < 10) {
-      // Not enough data to train
       this.trained = false;
       return;
     }
@@ -147,7 +151,6 @@ export class IsolationForest {
     this.trainingSize = data.length;
 
     for (let t = 0; t < this.config.nTrees; t++) {
-      // Sub-sample
       const sample: number[][] = [];
       for (let i = 0; i < sampleSize; i++) {
         sample.push(data[Math.floor(Math.random() * data.length)]);
@@ -158,7 +161,6 @@ export class IsolationForest {
     this.trained = true;
   }
 
-  /** Score a single point — returns anomaly score in [0, 1]. Higher = more anomalous. */
   score(point: number[]): number {
     if (!this.trained || this.trees.length === 0) return 0;
 
@@ -171,19 +173,23 @@ export class IsolationForest {
     const c = averagePathLength(this.config.sampleSize);
     if (c === 0) return 0;
 
-    // Anomaly score: s(x, n) = 2^(-E(h(x)) / c(n))
     const score = Math.pow(2, -avgPath / c);
     return Math.max(0, Math.min(1, score));
   }
 
-  /** Score multiple points */
   scoreAll(points: number[][]): number[] {
-    return points.map(p => this.score(p));
+    return points.map((p) => this.score(p));
   }
 
-  isTrained(): boolean { return this.trained; }
-  getTreeCount(): number { return this.trees.length; }
-  getTrainingSize(): number { return this.trainingSize; }
+  isTrained(): boolean {
+    return this.trained;
+  }
+  getTreeCount(): number {
+    return this.trees.length;
+  }
+  getTrainingSize(): number {
+    return this.trainingSize;
+  }
 }
 
 // ============================================================
@@ -199,15 +205,20 @@ export interface EWMAState {
 }
 
 export class EWMADetector {
-  private alpha: number;      // Smoothing factor (0 < α <= 1). Higher = more reactive.
+  private alpha: number;
   private state: EWMAState;
 
   constructor(alpha: number = 0.15) {
     this.alpha = alpha;
-    this.state = { mean: 0, variance: 0, std: 0, zScore: 0, initialized: false };
+    this.state = {
+      mean: 0,
+      variance: 0,
+      std: 0,
+      zScore: 0,
+      initialized: false,
+    };
   }
 
-  /** Update EWMA with a new observation and return current state */
   update(value: number): EWMAState {
     if (!this.state.initialized) {
       this.state.mean = value;
@@ -221,32 +232,35 @@ export class EWMADetector {
     const prevMean = this.state.mean;
     const diff = value - prevMean;
 
-    // Update mean: μ_t = α * x_t + (1 - α) * μ_{t-1}
     this.state.mean = this.alpha * value + (1 - this.alpha) * prevMean;
-
-    // Update variance: σ²_t = (1 - α) * (σ²_{t-1} + α * diff²)
-    this.state.variance = (1 - this.alpha) * (this.state.variance + this.alpha * diff * diff);
+    this.state.variance =
+      (1 - this.alpha) * (this.state.variance + this.alpha * diff * diff);
     this.state.std = Math.sqrt(this.state.variance);
-
-    // EWMA Z-Score
-    this.state.zScore = this.state.std > 0.001 ? (value - this.state.mean) / this.state.std : 0;
+    this.state.zScore =
+      this.state.std > 0.001 ? (value - this.state.mean) / this.state.std : 0;
 
     return { ...this.state };
   }
 
-  getState(): EWMAState { return { ...this.state }; }
-
+  getState(): EWMAState {
+    return { ...this.state };
+  }
   setAlpha(alpha: number): void {
     this.alpha = Math.max(0.01, Math.min(1.0, alpha));
   }
-
   reset(): void {
-    this.state = { mean: 0, variance: 0, std: 0, zScore: 0, initialized: false };
+    this.state = {
+      mean: 0,
+      variance: 0,
+      std: 0,
+      zScore: 0,
+      initialized: false,
+    };
   }
 }
 
 // ============================================================
-// FEATURE EXTRACTOR — Multivariate feature vector from events
+// FEATURE EXTRACTOR — Real-Time zero-I/O from Context Engine
 // ============================================================
 
 export interface FeatureVector {
@@ -258,60 +272,15 @@ export interface FeatureVector {
   timestamp: number;
 }
 
-/** Shannon entropy of a distribution */
-function shannonEntropy(counts: Record<string, number>): number {
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  if (total === 0) return 0;
-  let entropy = 0;
-  for (const count of Object.values(counts)) {
-    if (count > 0) {
-      const p = count / total;
-      entropy -= p * Math.log2(p);
-    }
-  }
-  return entropy;
-}
+export function extractFeaturesRealTime(windowSec: number): FeatureVector {
+  const eventsPerSec = contextEngine.getGlobalRate(windowSec);
+  const sourceEntropy = contextEngine.getSourceEntropy(windowSec);
+  const uniqueSources = contextEngine.getUniqueSourcesCount(windowSec);
+  const burstRatio = contextEngine.getBurstRatio(windowSec);
 
-/** Extract a multivariate feature vector from recent events */
-export async function extractFeatures(windowSec: number): Promise<FeatureVector> {
-  const tNow = Date.now() / 1000;
-  const cutoff = tNow - windowSec - 2;
-  const currentSec = Math.floor(tNow);
-
-  // Get per-second event counts
-  const countRows = await dbAll<any>(
-    "SELECT CAST(timestamp as INTEGER) as sec, COUNT(*) as count FROM events WHERE timestamp >= ? GROUP BY sec ORDER BY sec DESC",
-    [cutoff]
-  );
-  const countsMap: Record<number, number> = {};
-  countRows.forEach((r: any) => { countsMap[r.sec] = r.count; });
-
-  const eventsPerSec = countsMap[currentSec] || 0;
-
-  // Rate acceleration (difference between current and 5-sec avg)
-  let recentAvg = 0;
-  for (let i = 1; i <= 5; i++) recentAvg += (countsMap[currentSec - i] || 0);
-  recentAvg /= 5;
-  const rateAcceleration = eventsPerSec - recentAvg;
-
-  // Burst ratio: max/min in last 10 seconds
-  let maxRate = 0, minRate = Infinity;
-  for (let i = 0; i < 10; i++) {
-    const c = countsMap[currentSec - i] || 0;
-    if (c > maxRate) maxRate = c;
-    if (c < minRate) minRate = c;
-  }
-  const burstRatio = minRate > 0 ? maxRate / minRate : maxRate;
-
-  // Source entropy and unique sources (last 15 seconds)
-  const sourceRows = await dbAll<any>(
-    "SELECT source, COUNT(*) as cnt FROM events WHERE timestamp >= ? GROUP BY source",
-    [tNow - 15]
-  );
-  const sourceCounts: Record<string, number> = {};
-  sourceRows.forEach((r: any) => { sourceCounts[r.source] = r.cnt; });
-  const sourceEntropy = shannonEntropy(sourceCounts);
-  const uniqueSources = Object.keys(sourceCounts).length;
+  // Rate acceleration compared to last 5 seconds
+  const recentRate5s = contextEngine.getGlobalRate(5);
+  const rateAcceleration = eventsPerSec - recentRate5s;
 
   return {
     eventsPerSec,
@@ -319,11 +288,10 @@ export async function extractFeatures(windowSec: number): Promise<FeatureVector>
     uniqueSources,
     rateAcceleration,
     burstRatio,
-    timestamp: tNow,
+    timestamp: Date.now() / 1000,
   };
 }
 
-/** Convert FeatureVector to a numeric array for iForest */
 export function featureVectorToArray(fv: FeatureVector): number[] {
   return [
     fv.eventsPerSec,
@@ -335,31 +303,22 @@ export function featureVectorToArray(fv: FeatureVector): number[] {
 }
 
 // ============================================================
-// HYBRID DETECTOR — Orchestrates all 3 layers + fusion
+// HYBRID DETECTOR & THREAT FUSION ENGINE
 // ============================================================
 
 export interface HybridResult {
-  // Layer 1: Z-Score (existing, passed in)
   zScore: number;
   zScoreSeverity: string;
-
-  // Layer 2: Isolation Forest
   iforestScore: number;
   iforestActive: boolean;
   iforestTrained: boolean;
   iforestTreeCount: number;
-
-  // Layer 3: EWMA
   ewmaScore: number;
   ewmaMean: number;
   ewmaStd: number;
-
-  // Fused
   hybridScore: number;
   hybridSeverity: string;
   detectionMethod: string;
-
-  // Feature vector (for logging)
   features: FeatureVector | null;
 }
 
@@ -367,97 +326,132 @@ export class HybridDetector {
   private iforest: IsolationForest;
   private ewma: EWMADetector;
   private featureHistory: FeatureVector[] = [];
-  private maxHistory = 300; // Keep last 300 feature vectors (~5 min at 1/sec)
-  private retrainInterval = 30; // Retrain iForest every 30 seconds
-  private tickCount = 0;
+  private maxHistory = 500; // In-memory ring buffer size for training
+  private retrainInterval = 500; // Asynchronous training every 500 events
+  private processedEventsCount = 0;
   private iforestEnabled: boolean;
   private ewmaAlpha: number;
   private fusionWeights: { zscore: number; iforest: number; ewma: number };
 
-  constructor(opts: {
-    iforestEnabled?: boolean;
-    ewmaAlpha?: number;
-    fusionWeights?: { zscore: number; iforest: number; ewma: number };
-  } = {}) {
-    this.iforest = new IsolationForest({ nTrees: 50, sampleSize: 128, maxDepth: 8 });
+  constructor(
+    opts: {
+      iforestEnabled?: boolean;
+      ewmaAlpha?: number;
+      fusionWeights?: { zscore: number; iforest: number; ewma: number };
+    } = {},
+  ) {
+    this.iforest = new IsolationForest({
+      nTrees: 50,
+      sampleSize: 128,
+      maxDepth: 8,
+    });
     this.ewma = new EWMADetector(opts.ewmaAlpha || 0.15);
     this.iforestEnabled = opts.iforestEnabled ?? true;
     this.ewmaAlpha = opts.ewmaAlpha || 0.15;
-    this.fusionWeights = opts.fusionWeights || { zscore: 0.35, iforest: 0.40, ewma: 0.25 };
+    this.fusionWeights = opts.fusionWeights || {
+      zscore: 0.35,
+      iforest: 0.4,
+      ewma: 0.25,
+    };
+
+    // Register modular engines in Orchestrator sequencing
+    detectionOrchestrator.registerModule(new RuleEngineModule());
+    detectionOrchestrator.registerModule(
+      new IsolationForestModule(this.iforest),
+    );
+    detectionOrchestrator.registerModule(new BehavioralEngineModule());
+    detectionOrchestrator.registerModule(new RiskEngineModule());
   }
 
-  /** Main analysis function — called every second from detector loop */
-  async analyze(
-    zScore: number,
-    currentRate: number,
+  /**
+   * Main real-time event analyzer.
+   * Performs inline calculation and threat fusion for an incoming event.
+   */
+  async analyzeEvent(
+    event: { event_type: string; source: string; timestamp: number },
     windowSec: number,
     zScoreThreshold: number,
   ): Promise<HybridResult> {
-    this.tickCount++;
+    this.processedEventsCount++;
 
-    // --- Layer 1: Z-Score severity (existing logic) ---
+    // 1. Record event in Context Engine
+    contextEngine.addEvent(event);
+
+    // 2. In-memory Real-Time Feature Engineering
+    const features = extractFeaturesRealTime(windowSec);
+    this.featureHistory.push(features);
+    if (this.featureHistory.length > this.maxHistory) {
+      this.featureHistory = this.featureHistory.slice(-this.maxHistory);
+    }
+
+    // 2.5 Run Detection Orchestrator sequential modules
+    const moduleResults = await detectionOrchestrator.execute(event, features);
+
+    // 3. Periodic Asynchronous retraining trigger (doesn't block event thread)
+    if (
+      this.processedEventsCount % this.retrainInterval === 0 &&
+      this.featureHistory.length >= 30
+    ) {
+      const trainingData = this.featureHistory.map((fv) =>
+        featureVectorToArray(fv),
+      );
+      // Run train synchronously or offload to next tick to keep thread hot
+      process.nextTick(() => {
+        try {
+          this.iforest.train(trainingData);
+        } catch (err) {
+          // Graceful model train failure protection
+        }
+      });
+    }
+
+    // 4. Compute scoring components
+    const currentRate = features.eventsPerSec;
+
+    // Calculate rolling Z-Score based on history
+    let zScore = 0;
+    if (this.featureHistory.length > 5) {
+      const rates = this.featureHistory.map((h) => h.eventsPerSec);
+      const sum = rates.reduce((a, b) => a + b, 0);
+      const mean = sum / rates.length;
+      const sqSum = rates.reduce(
+        (acc, val) => acc + Math.pow(val - mean, 2),
+        0,
+      );
+      const stdDev = Math.sqrt(sqSum / (rates.length - 1));
+      zScore = stdDev > 0 ? (currentRate - mean) / stdDev : 0;
+    }
+
     let zScoreSeverity = "LOW";
     if (zScore > zScoreThreshold * 2) zScoreSeverity = "CRITICAL";
     else if (zScore > zScoreThreshold * 1.5) zScoreSeverity = "HIGH";
     else if (zScore > zScoreThreshold) zScoreSeverity = "MEDIUM";
 
-    // --- Layer 2: Isolation Forest ---
     let iforestScore = 0;
-    let features: FeatureVector | null = null;
-
-    if (this.iforestEnabled) {
-      // Extract features every second
-      try {
-        features = await extractFeatures(windowSec);
-        this.featureHistory.push(features);
-        if (this.featureHistory.length > this.maxHistory) {
-          this.featureHistory = this.featureHistory.slice(-this.maxHistory);
-        }
-      } catch (e: any) {
-        // Feature extraction failed — skip iForest this tick
-      }
-
-      // Retrain periodically
-      if (this.tickCount % this.retrainInterval === 0 && this.featureHistory.length >= 30) {
-        const trainingData = this.featureHistory.map(fv => featureVectorToArray(fv));
-        this.iforest.train(trainingData);
-      }
-
-      // Score current point
-      if (features && this.iforest.isTrained()) {
-        iforestScore = this.iforest.score(featureVectorToArray(features));
-      }
+    if (this.iforestEnabled && this.iforest.isTrained()) {
+      iforestScore = this.iforest.score(featureVectorToArray(features));
     }
 
-    // --- Layer 3: EWMA ---
     const ewmaState = this.ewma.update(currentRate);
-    const ewmaScore = Math.abs(ewmaState.zScore); // Use absolute value for scoring
+    const ewmaScore = Math.abs(ewmaState.zScore);
 
-    // --- Fused Scoring ---
-    // Normalize all scores to [0, 1] range
-    const zNorm = Math.min(zScore / (zScoreThreshold * 3), 1); // Z normalized against 3x threshold
-    const iNorm = iforestScore; // Already [0, 1]
-    const eNorm = Math.min(ewmaScore / 6, 1); // EWMA Z normalized against 6 SD
+    // 5. Threat Fusion
+    const zNorm = Math.min(zScore / (zScoreThreshold * 3), 1);
+    const iNorm = iforestScore;
+    const eNorm = Math.min(ewmaScore / 6, 1);
 
     let hybridScore: number;
     let detectionMethod: string;
 
     if (this.iforestEnabled && this.iforest.isTrained()) {
-      // Full hybrid: weighted sum of all 3 layers
       const w = this.fusionWeights;
       hybridScore = w.zscore * zNorm + w.iforest * iNorm + w.ewma * eNorm;
       detectionMethod = "HYBRID";
-    } else if (this.iforestEnabled && !this.iforest.isTrained()) {
-      // Warming up: Z-Score + EWMA only
-      hybridScore = 0.6 * zNorm + 0.4 * eNorm;
-      detectionMethod = "ZSCORE+EWMA";
     } else {
-      // iForest disabled: Z-Score + EWMA
-      hybridScore = 0.7 * zNorm + 0.3 * eNorm;
+      hybridScore = 0.6 * zNorm + 0.4 * eNorm;
       detectionMethod = "ZSCORE+EWMA";
     }
 
-    // Hybrid severity classification
     let hybridSeverity = "LOW";
     if (hybridScore >= 0.7) hybridSeverity = "CRITICAL";
     else if (hybridScore >= 0.5) hybridSeverity = "HIGH";
@@ -480,9 +474,13 @@ export class HybridDetector {
     };
   }
 
-  /** Update configuration at runtime */
-  setConfig(opts: { iforestEnabled?: boolean; ewmaAlpha?: number; fusionWeights?: { zscore: number; iforest: number; ewma: number } }): void {
-    if (opts.iforestEnabled !== undefined) this.iforestEnabled = opts.iforestEnabled;
+  setConfig(opts: {
+    iforestEnabled?: boolean;
+    ewmaAlpha?: number;
+    fusionWeights?: { zscore: number; iforest: number; ewma: number };
+  }): void {
+    if (opts.iforestEnabled !== undefined)
+      this.iforestEnabled = opts.iforestEnabled;
     if (opts.ewmaAlpha !== undefined) {
       this.ewmaAlpha = opts.ewmaAlpha;
       this.ewma.setAlpha(opts.ewmaAlpha);
@@ -490,23 +488,32 @@ export class HybridDetector {
     if (opts.fusionWeights) this.fusionWeights = opts.fusionWeights;
   }
 
-  /** Get engine status for health/metrics API */
-  getStatus(): { iforestTrained: boolean; iforestTrees: number; iforestTrainingSize: number; ewmaInitialized: boolean; featureHistoryLength: number; tickCount: number } {
+  getStatus(): {
+    iforestTrained: boolean;
+    iforestTrees: number;
+    iforestTrainingSize: number;
+    ewmaInitialized: boolean;
+    featureHistoryLength: number;
+    processedEventsCount: number;
+  } {
     return {
       iforestTrained: this.iforest.isTrained(),
       iforestTrees: this.iforest.getTreeCount(),
       iforestTrainingSize: this.iforest.getTrainingSize(),
       ewmaInitialized: this.ewma.getState().initialized,
       featureHistoryLength: this.featureHistory.length,
-      tickCount: this.tickCount,
+      processedEventsCount: this.processedEventsCount,
     };
   }
 
-  /** Reset all state (for demo restart) */
   reset(): void {
-    this.iforest = new IsolationForest({ nTrees: 50, sampleSize: 128, maxDepth: 8 });
+    this.iforest = new IsolationForest({
+      nTrees: 50,
+      sampleSize: 128,
+      maxDepth: 8,
+    });
     this.ewma.reset();
     this.featureHistory = [];
-    this.tickCount = 0;
+    this.processedEventsCount = 0;
   }
 }
