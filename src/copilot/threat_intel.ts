@@ -476,7 +476,15 @@ export class ThreatIntelService {
       return null;
     }
 
-    const response = await fetch(url, {
+    const parsedUrl = new URL(url);
+    if (
+      parsedUrl.protocol !== "https:" ||
+      parsedUrl.hostname !== "www.virustotal.com"
+    ) {
+      return null;
+    }
+
+    const response = await fetch(parsedUrl.toString(), {
       headers: { "x-apikey": apiKey },
     });
 

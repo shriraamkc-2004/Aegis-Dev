@@ -130,7 +130,11 @@ app.use(
 );
 
 // Redis-backed Rate Limiters
-import { apiLimiter, authLimiter } from "./src/middleware/rateLimiter.js";
+import {
+  apiLimiter,
+  authLimiter,
+  globalLimiter,
+} from "./src/middleware/rateLimiter.js";
 app.use("/api/", gatewayRateLimiter);
 app.use("/api/", apiLimiter);
 
@@ -2985,9 +2989,19 @@ app.post("/api/demo/replay", authenticateToken, async (req, res) => {
       return;
     }
     const sampleDir = path.join(process.cwd(), "sample_data");
-    const filePath = path.join(sampleDir, sample_file || "mixed_sample.json");
+    const sampleFile = sample_file || "mixed_sample.json";
+    if (!/^[a-zA-Z0-9_-]+\.json$/.test(sampleFile)) {
+      res
+        .status(400)
+        .json({
+          error:
+            "Invalid sample file name. Only alphanumeric names with a .json extension are allowed.",
+        });
+      return;
+    }
+    const filePath = path.join(sampleDir, sampleFile);
     if (!fs.existsSync(filePath)) {
-      res.status(404).json({ error: `Sample file not found: ${sample_file}` });
+      res.status(404).json({ error: `Sample file not found: ${sampleFile}` });
       return;
     }
     const events = JSON.parse(fs.readFileSync(filePath, "utf-8"));
@@ -3655,10 +3669,8 @@ function startProducerLoop() {
       );
     }
   };
-  activeProducerInterval = setInterval(
-    triggerTick,
-    engineSettings.EVENT_INTERVAL,
-  );
+  const safeInterval = Math.max(50, engineSettings.EVENT_INTERVAL);
+  activeProducerInterval = setInterval(triggerTick, safeInterval);
 }
 
 function restartProducerLoop() {
@@ -4010,7 +4022,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", globalLimiter, (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

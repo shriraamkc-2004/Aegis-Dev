@@ -104,7 +104,9 @@ def load_documents_from_directory(
     docs: List[Document] = []
     try:
         base_path = Path(KNOWLEDGE_BASE_DIR).resolve()
-        dir_path = Path(directory).resolve()
+        # Clean directory path to prevent any path traversal attempts
+        clean_dir = directory.strip("/").strip("\\").replace("..", "")
+        dir_path = (base_path / clean_dir).resolve()
         try:
             dir_path.relative_to(base_path)
         except ValueError:

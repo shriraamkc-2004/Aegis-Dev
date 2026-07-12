@@ -25,13 +25,19 @@ function buildDatabaseUrl(): string {
 export function getPrismaClient(): PrismaClient {
   if (!prismaInstance) {
     const connStr = buildDatabaseUrl();
-    console.log("PRISMA CLIENT: Connecting to", connStr);
+    const maskedConnStr = connStr.replace(/:([^:@]+)@/, ":[REDACTED]@");
+    console.log("PRISMA CLIENT: Connecting to", maskedConnStr);
     const pool = new pg.Pool({ connectionString: connStr });
     const adapter = new PrismaPg(pool);
-    console.log("PRISMA CLIENT: Created adapter:", adapter ? typeof adapter : "undefined", adapter);
+    console.log(
+      "PRISMA CLIENT: Created adapter:",
+      adapter ? typeof adapter : "undefined",
+      adapter,
+    );
     prismaInstance = new PrismaClient({
       adapter,
-      log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
+      log:
+        process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
     });
   }
   return prismaInstance;

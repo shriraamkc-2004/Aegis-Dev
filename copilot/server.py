@@ -221,6 +221,10 @@ async def ingest_directory(
     """Ingest all documents from a server-side directory (tenant-aware)."""
     if not _rag_pipeline:
         raise HTTPException(status_code=503, detail="RAG pipeline not initialized")
+    # Sanitize input directory parameter to prevent path traversal attempts
+    if ".." in directory or "/" in directory or "\\" in directory or ":" in directory or "%" in directory:
+        raise HTTPException(status_code=400, detail="Invalid directory name format. Path traversal characters not allowed.")
+
     count = _rag_pipeline.ingest_directory(directory, collection, tag, tenant_id)
     return {"chunks_indexed": count, "collection": collection, "directory": directory}
 
