@@ -5,7 +5,11 @@
  * Implements safe failure responses when services are unavailable.
  */
 
-import { governanceService, type GovernanceDecision, type RetrievedDocument } from "./governance_service.js";
+import {
+  governanceService,
+  type GovernanceDecision,
+  type RetrievedDocument,
+} from "./governance_service.js";
 import { healthMonitorService } from "./health_monitor.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
@@ -52,7 +56,7 @@ export function processCopilotResponse(
   confidence: number,
   tenantId: number | null = null,
   sessionId: string | null = null,
-  modelUsed: string = "gemini-2.5-flash"
+  modelUsed: string = "gemini-2.5-flash",
 ): ProcessedCopilotResponse {
   const responseId = sessionId || `resp_${Date.now()}`;
 
@@ -62,7 +66,7 @@ export function processCopilotResponse(
     // If Gemini or Qdrant is down, use safe fallback
     const degradedList = serviceHealth.degraded_services.join(", ");
     const fallbackMsg = healthMonitorService.getFallbackMessage(
-      serviceHealth.degraded_services[0] as any
+      serviceHealth.degraded_services[0] as any,
     );
 
     const governance = governanceService.evaluate(
@@ -72,7 +76,7 @@ export function processCopilotResponse(
       0,
       userPrompt,
       modelUsed,
-      tenantId
+      tenantId,
     );
 
     // Record audit
@@ -113,11 +117,15 @@ export function processCopilotResponse(
     confidence,
     userPrompt,
     modelUsed,
-    tenantId
+    tenantId,
   );
 
   // Step 3: Run explicit boundary check
-  const boundaryCheck = governanceService.enforceAIBoundaries(rawResponse, userPrompt, tenantId);
+  const boundaryCheck = governanceService.enforceAIBoundaries(
+    rawResponse,
+    userPrompt,
+    tenantId,
+  );
 
   // Step 4: Apply PII masking
   const { masked } = governanceService.maskPII(rawResponse);
@@ -134,11 +142,16 @@ export function processCopilotResponse(
     // Add context about WHY fallback was triggered
     const reasons: string[] = [];
     if (!governance.evidence_sufficient) reasons.push("insufficient evidence");
-    if (governance.hallucination_detected) reasons.push("potential hallucination detected");
-    if (boundaryCheck.blocked) reasons.push(`AI boundary violations: ${boundaryCheck.violations.join(", ")}`);
+    if (governance.hallucination_detected)
+      reasons.push("potential hallucination detected");
+    if (boundaryCheck.blocked)
+      reasons.push(
+        `AI boundary violations: ${boundaryCheck.violations.join(", ")}`,
+      );
 
     finalResponse += `\n\n⚠ Safe fallback triggered: ${reasons.join("; ")}`;
-    finalResponse += "\n\nPlease escalate to a human analyst for investigation.";
+    finalResponse +=
+      "\n\nPlease escalate to a human analyst for investigation.";
   } else {
     finalResponse = masked;
   }
@@ -209,23 +222,81 @@ function getServiceHealth(): {
  */
 export function validateCopilotRequest(
   prompt: string,
-  tenantId: number | null
+  tenantId: number | null,
 ): { allowed: boolean; reason: string | null } {
+  // 1. Enforce strict prompt length limits
+  if (prompt.length > 8000) {
+    return {
+      allowed: false,
+      reason:
+        "Request blocked: Prompt exceeds maximum size limit of 8,000 characters.",
+    };
+  }
+
+  // 2. Identify prompt injection or system override attempts
+  const promptInjectionPatterns = [
+    /\bignore\s+previous\s+instructions\b/i,
+    /\bignore\s+above\s+instructions\b/i,
+    /\bsystem\s+prompt\b/i,
+    /\byou\s+are\s+now\s+a\b/i,
+    /\bdo\s+not\s+enforce\b.*\bboundar/i,
+    /\breveal\b.*\binstruction\b/i,
+    /assistant\s+should\s+ignore\b/i,
+  ];
+
+  for (const pattern of promptInjectionPatterns) {
+    if (pattern.test(prompt)) {
+      return {
+        allowed: false,
+        reason:
+          "⚠ Security violation: Prompt injection or system instruction override attempt detected.",
+      };
+    }
+  }
+
   // Check for prompts requesting prohibited actions
   const prohibitedPatterns = [
-    { pattern: /\b(block|blacklist)\s+(this\s+)?ip\b/i, boundary: "BOUNDARY_001" },
-    { pattern: /\bisolate\s+(this\s+)?(endpoint|host|machine)\b/i, boundary: "BOUNDARY_002" },
-    { pattern: /\bdisable\s+(this\s+)?(account|user)\b/i, boundary: "BOUNDARY_003" },
-    { pattern: /\b(change|modify|adjust)\s+(the\s+)?(threshold|sensitivity)\b/i, boundary: "BOUNDARY_004" },
-    { pattern: /\b(execute|run|apply)\s+(mitigation|remediation|countermeasure)\b/i, boundary: "BOUNDARY_005" },
-    { pattern: /\b(override|bypass)\s+(rbac|permission|access)\b/i, boundary: "BOUNDARY_006" },
-    { pattern: /\b(show|get|access)\s+(other|another)\s+(tenant|org)\b/i, boundary: "BOUNDARY_007" },
-    { pattern: /\b(show|reveal|display)\s+(password|secret|api\s*key|credential)\b/i, boundary: "BOUNDARY_008" },
+    {
+      pattern: /\b(block|blacklist)\s+(this\s+)?ip\b/i,
+      boundary: "BOUNDARY_001",
+    },
+    {
+      pattern: /\bisolate\s+(this\s+)?(endpoint|host|machine)\b/i,
+      boundary: "BOUNDARY_002",
+    },
+    {
+      pattern: /\bdisable\s+(this\s+)?(account|user)\b/i,
+      boundary: "BOUNDARY_003",
+    },
+    {
+      pattern: /\b(change|modify|adjust)\s+(the\s+)?(threshold|sensitivity)\b/i,
+      boundary: "BOUNDARY_004",
+    },
+    {
+      pattern:
+        /\b(execute|run|apply)\s+(mitigation|remediation|countermeasure)\b/i,
+      boundary: "BOUNDARY_005",
+    },
+    {
+      pattern: /\b(override|bypass)\s+(rbac|permission|access)\b/i,
+      boundary: "BOUNDARY_006",
+    },
+    {
+      pattern: /\b(show|get|access)\s+(other|another)\s+(tenant|org)\b/i,
+      boundary: "BOUNDARY_007",
+    },
+    {
+      pattern:
+        /\b(show|reveal|display)\s+(password|secret|api\s*key|credential)\b/i,
+      boundary: "BOUNDARY_008",
+    },
   ];
 
   for (const { pattern, boundary } of prohibitedPatterns) {
     if (pattern.test(prompt)) {
-      const boundaryDef = governanceService.getStatus().ai_boundaries?.find((b: any) => b.id === boundary);
+      const boundaryDef = governanceService
+        .getStatus()
+        .ai_boundaries?.find((b: any) => b.id === boundary);
       return {
         allowed: false,
         reason:
@@ -248,7 +319,10 @@ export function validateCopilotRequest(
 export function aiBoundaryMiddleware(req: any, res: any, next: any): void {
   // Attach boundary notice to all copilot-related requests
   if (req.path?.includes("/copilot")) {
-    res.setHeader("X-AI-Boundary-Notice", "Advisory Only - Human Approval Required for High-Impact Actions");
+    res.setHeader(
+      "X-AI-Boundary-Notice",
+      "Advisory Only - Human Approval Required for High-Impact Actions",
+    );
   }
   next();
 }

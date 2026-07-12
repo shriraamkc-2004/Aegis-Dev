@@ -236,6 +236,14 @@ async def ingest_uploaded_file(
     if not _rag_pipeline:
         raise HTTPException(status_code=503, detail="RAG pipeline not initialized")
 
+    # Enforce maximum file size limit (5MB) to prevent memory exhaustion DoS
+    MAX_FILE_SIZE = 5 * 1024 * 1024
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File size exceeds maximum limit of 5MB")
+
     content = await file.read()
     filename = file.filename or "unknown"
 
