@@ -214,6 +214,9 @@ function getServiceHealth(): {
   };
 }
 
+import { logAudit } from "../auth.js";
+import { logStructured } from "../observability/logger.js";
+
 // ─── Pre-Request Validation ─────────────────────────────────────────────────────
 
 /**
@@ -226,6 +229,19 @@ export function validateCopilotRequest(
 ): { allowed: boolean; reason: string | null } {
   // 1. Enforce strict prompt length limits
   if (prompt.length > 8000) {
+    logStructured("warn", "Copilot prompt blocked: Length limit exceeded", {
+      promptLength: prompt.length,
+      tenantId,
+    });
+    logAudit(
+      null,
+      "anonymous",
+      "BLOCKED_AI_PROMPT_LIMIT",
+      "prompt",
+      "Length limit exceeded",
+      "",
+      tenantId || 1,
+    );
     return {
       allowed: false,
       reason:
@@ -246,6 +262,20 @@ export function validateCopilotRequest(
 
   for (const pattern of promptInjectionPatterns) {
     if (pattern.test(prompt)) {
+      logStructured(
+        "warn",
+        "Copilot prompt blocked: Prompt injection attempt detected",
+        { pattern: pattern.source, tenantId },
+      );
+      logAudit(
+        null,
+        "anonymous",
+        "BLOCKED_AI_PROMPT_INJECTION",
+        "prompt",
+        `Injection attempt: ${pattern.source}`,
+        "",
+        tenantId || 1,
+      );
       return {
         allowed: false,
         reason:
