@@ -484,7 +484,9 @@ export class ThreatIntelService {
       return null;
     }
 
-    const response = await fetch(parsedUrl.toString(), {
+    // Use a hardcoded origin to prevent SSRF
+    const origin = "https://www.virustotal.com";
+    const response = await fetch(`${origin}${parsedUrl.pathname}`, {
       headers: { "x-apikey": apiKey },
     });
 
