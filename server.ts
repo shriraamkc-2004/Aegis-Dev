@@ -113,10 +113,18 @@ app.use(requestLoggerMiddleware);
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Security Headers (relaxed CSP for dev mode Vite HMR)
+// Security Headers (secure CSP preserving Vite dev-mode compatibility)
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        connectSrc: ["'self'", "ws:", "wss:", "http:", "https:"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:"],
+      },
+    },
     crossOriginEmbedderPolicy: false,
   }),
 );

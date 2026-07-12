@@ -2,8 +2,8 @@
  * Aegis Enterprise - Observability Logger & Request ID Middleware
  * Implements structured JSON logging and trace propagation.
  */
-import { Request, Response, NextFunction } from 'express';
-import { v4 as uuidv4 } from 'uuid';
+import { Request, Response, NextFunction } from "express";
+import { v4 as uuidv4 } from "uuid";
 
 export interface LogMetadata {
   traceId?: string;
@@ -13,47 +13,83 @@ export interface LogMetadata {
   [key: string]: any;
 }
 
-export function logStructured(level: 'info' | 'warn' | 'error', message: string, meta: LogMetadata = {}) {
+function maskSecrets(obj: any): any {
+  if (!obj || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(maskSecrets);
+  const clone = { ...obj };
+  const sensitiveKeys = [
+    "password",
+    "token",
+    "secret",
+    "authorization",
+    "x-apikey",
+    "jwt",
+    "cookie",
+    "key",
+  ];
+  for (const k of Object.keys(clone)) {
+    if (sensitiveKeys.some((s) => k.toLowerCase().includes(s))) {
+      clone[k] = "[REDACTED]";
+    } else if (typeof clone[k] === "object") {
+      clone[k] = maskSecrets(clone[k]);
+    }
+  }
+  return clone;
+}
+
+export function logStructured(
+  level: "info" | "warn" | "error",
+  message: string,
+  meta: LogMetadata = {},
+) {
   const logEntry = {
     timestamp: new Date().toISOString(),
     level,
     message,
-    ...meta
+    ...maskSecrets(meta),
   };
   console.log(JSON.stringify(logEntry));
 }
 
 // Middleware to inject Request ID and Trace ID and log HTTP requests
-export function requestLoggerMiddleware(req: Request, res: Response, next: NextFunction) {
-  const requestId = (req.headers['x-request-id'] as string) || uuidv4();
-  const traceId = (req.headers['x-trace-id'] as string) || uuidv4();
+export function requestLoggerMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  const requestId = (req.headers["x-request-id"] as string) || uuidv4();
+  const traceId = (req.headers["x-trace-id"] as string) || uuidv4();
 
   // Attach to request object
   (req as any).requestId = requestId;
   (req as any).traceId = traceId;
 
   // Add headers to response
-  res.setHeader('x-request-id', requestId);
-  res.setHeader('x-trace-id', traceId);
+  res.setHeader("x-request-id", requestId);
+  res.setHeader("x-trace-id", traceId);
 
   const startTime = Date.now();
 
-  res.on('finish', () => {
+  res.on("finish", () => {
     const duration = Date.now() - startTime;
     const user = (req as any).user;
     const userId = user?.id;
     const orgId = user?.organization_id;
 
-    logStructured('info', `${req.method} ${req.originalUrl} - ${res.statusCode}`, {
-      requestId,
-      traceId,
-      userId,
-      orgId,
-      method: req.method,
-      url: req.originalUrl,
-      statusCode: res.statusCode,
-      durationMs: duration
-    });
+    logStructured(
+      "info",
+      `${req.method} ${req.originalUrl} - ${res.statusCode}`,
+      {
+        requestId,
+        traceId,
+        userId,
+        orgId,
+        method: req.method,
+        url: req.originalUrl,
+        statusCode: res.statusCode,
+        durationMs: duration,
+      },
+    );
   });
 
   next();

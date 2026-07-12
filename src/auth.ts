@@ -2,14 +2,21 @@ import jwt from "jsonwebtoken";
 import { Request, Response, NextFunction } from "express";
 import { dbGet, dbRun } from "./server_db.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "aegis-enterprise-secret-key-change-in-production";
+const JWT_SECRET =
+  process.env.JWT_SECRET || "aegis-enterprise-secret-key-change-in-production";
 const JWT_EXPIRY = "1h";
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET + "-refresh";
+const JWT_REFRESH_SECRET =
+  process.env.JWT_REFRESH_SECRET || JWT_SECRET + "-refresh";
 const JWT_REFRESH_EXPIRY = "7d";
 
 export type UserRole =
-  | "super_admin" | "org_admin" | "soc_analyst" | "executive_viewer"
-  | "demo_admin" | "demo_analyst" | "demo_viewer";
+  | "super_admin"
+  | "org_admin"
+  | "soc_analyst"
+  | "executive_viewer"
+  | "demo_admin"
+  | "demo_analyst"
+  | "demo_viewer";
 
 export type UserMode = "demo" | "org";
 
@@ -33,9 +40,15 @@ declare global {
 // Generate JWT access token
 export function generateToken(user: AuthUser): string {
   return jwt.sign(
-    { id: user.id, username: user.username, role: user.role, organization_id: user.organization_id, mode: user.mode },
+    {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      organization_id: user.organization_id,
+      mode: user.mode,
+    },
     JWT_SECRET,
-    { expiresIn: JWT_EXPIRY }
+    { expiresIn: JWT_EXPIRY },
   );
 }
 
@@ -44,7 +57,7 @@ export function generateRefreshToken(user: AuthUser): string {
   return jwt.sign(
     { id: user.id, username: user.username, type: "refresh" },
     JWT_REFRESH_SECRET,
-    { expiresIn: JWT_REFRESH_EXPIRY }
+    { expiresIn: JWT_REFRESH_EXPIRY },
   );
 }
 
@@ -74,7 +87,10 @@ export async function isRefreshTokenRevoked(token: string): Promise<boolean> {
 }
 
 // Revoke a refresh token in Redis
-export async function revokeRefreshToken(token: string, expirySeconds: number = 7 * 24 * 3600): Promise<void> {
+export async function revokeRefreshToken(
+  token: string,
+  expirySeconds: number = 7 * 24 * 3600,
+): Promise<void> {
   try {
     const hash = crypto.createHash("sha256").update(token).digest("hex");
     await redis.set(`blacklist:${hash}`, "true", "EX", expirySeconds);
@@ -89,12 +105,19 @@ export function verifyToken(token: string): AuthUser {
 }
 
 // Verify JWT token middleware
-export function authenticateToken(req: Request, res: Response, next: NextFunction): void {
+export function authenticateToken(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
   const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const token =
+    authHeader && authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
   if (!token) {
-    res.status(401).json({ error: "Authentication required. Provide Bearer token." });
+    res
+      .status(401)
+      .json({ error: "Authentication required. Provide Bearer token." });
     return;
   }
 
@@ -119,7 +142,11 @@ export function requireRole(...allowedRoles: string[]) {
       return;
     }
     if (!allowedRoles.includes(req.user.role)) {
-      res.status(403).json({ error: `Access denied. Required role: ${allowedRoles.join(" or ")}` });
+      res
+        .status(403)
+        .json({
+          error: `Access denied. Required role: ${allowedRoles.join(" or ")}`,
+        });
       return;
     }
     next();
@@ -134,26 +161,47 @@ export async function logAudit(
   resource: string = "",
   details: string = "",
   ipAddress: string = "",
-  organizationId: number = 1
+  organizationId: number = 1,
 ): Promise<void> {
   try {
     await dbRun(
       "INSERT INTO audit_logs (user_id, username, action, resource, details, ip_address, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [userId, username, action, resource, details, ipAddress, organizationId]
+      [userId, username, action, resource, details, ipAddress, organizationId],
     );
   } catch (err: any) {
     console.error("Audit log error:", err.message);
   }
 }
 
-// Tenant isolation middleware - ensures users only access their org's data
-export function tenantIsolation(req: Request, res: Response, next: NextFunction): void {
+export function tenantIsolation(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!req.user) {
+    res.status(401).json({ error: "Authentication required." });
+    return;
+  }
   // Super admins can access all tenants
-  if (req.user?.role === "super_admin") {
+  if (req.user.role === "super_admin") {
     next();
     return;
   }
-  // Other users are scoped to their organization
+  // Extract tenant ID from request context (query, body, or params)
+  const reqTenantId =
+    req.query.tenant_id ||
+    req.body.tenant_id ||
+    req.params.tenantId ||
+    req.headers["x-tenant-id"];
+  if (reqTenantId) {
+    const tid = parseInt(reqTenantId as string);
+    if (!isNaN(tid) && tid !== req.user.organization_id) {
+      res
+        .status(403)
+        .json({ error: "Access denied. Cross-tenant query unauthorized." });
+      return;
+    }
+  }
   next();
 }
 
@@ -169,12 +217,19 @@ export function isDemoUser(user: AuthUser): boolean {
 }
 
 // Demo role hierarchy check
-export function hasDemoRole(user: AuthUser, ...allowedRoles: string[]): boolean {
+export function hasDemoRole(
+  user: AuthUser,
+  ...allowedRoles: string[]
+): boolean {
   return allowedRoles.includes(user.role);
 }
 
 // Require demo mode
-export function requireDemoMode(req: Request, res: Response, next: NextFunction): void {
+export function requireDemoMode(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
   if (!req.user) {
     res.status(401).json({ error: "Authentication required." });
     return;
@@ -187,7 +242,11 @@ export function requireDemoMode(req: Request, res: Response, next: NextFunction)
 }
 
 // Require org mode
-export function requireOrgMode(req: Request, res: Response, next: NextFunction): void {
+export function requireOrgMode(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
   if (!req.user) {
     res.status(401).json({ error: "Authentication required." });
     return;
@@ -206,7 +265,8 @@ export function requireOrgMode(req: Request, res: Response, next: NextFunction):
  */
 import crypto from "crypto";
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || "aegis-super-secret-key-32bytes-long!!"; // Should be 32 bytes
+const ENCRYPTION_KEY =
+  process.env.ENCRYPTION_KEY || "aegis-super-secret-key-32bytes-long!!"; // Should be 32 bytes
 const IV_LENGTH = 16;
 
 export function encryptSensitive(text: string): string {
@@ -242,9 +302,12 @@ export function decryptSensitive(text: string): string {
   }
 }
 
-export function maskPII(text: string, type?: "email" | "ip" | "username"): string {
+export function maskPII(
+  text: string,
+  type?: "email" | "ip" | "username",
+): string {
   if (!text) return "";
-  
+
   if (type === "username") {
     if (text.length <= 2) {
       return text.length === 1 ? "*" : `${text[0]}*`;
@@ -253,15 +316,22 @@ export function maskPII(text: string, type?: "email" | "ip" | "username"): strin
   }
 
   // Mask Email
-  let masked = text.replace(/([a-zA-Z0-9_\-\.]+)@([a-zA-Z0-9_\-\.]+)\.([a-zA-Z]{2,5})/g, (match, emailUser, emailDomain, emailExt) => {
-    if (emailUser.length <= 2) return `${emailUser[0]}***@${emailDomain[0]}***.${emailExt}`;
-    return `${emailUser[0]}***${emailUser[emailUser.length - 1]}@${emailDomain[0]}***.${emailExt}`;
-  });
+  let masked = text.replace(
+    /([a-zA-Z0-9_\-\.]+)@([a-zA-Z0-9_\-\.]+)\.([a-zA-Z]{2,5})/g,
+    (match, emailUser, emailDomain, emailExt) => {
+      if (emailUser.length <= 2)
+        return `${emailUser[0]}***@${emailDomain[0]}***.${emailExt}`;
+      return `${emailUser[0]}***${emailUser[emailUser.length - 1]}@${emailDomain[0]}***.${emailExt}`;
+    },
+  );
   // Mask IPv4 IP Address
-  masked = masked.replace(/\b\d{1,3}\.\d{1,3}\.(\d{1,3})\.(\d{1,3})\b/g, (match) => {
-    const parts = match.split(".");
-    return `${parts[0]}.${parts[1]}.*.*`;
-  });
+  masked = masked.replace(
+    /\b\d{1,3}\.\d{1,3}\.(\d{1,3})\.(\d{1,3})\b/g,
+    (match) => {
+      const parts = match.split(".");
+      return `${parts[0]}.${parts[1]}.*.*`;
+    },
+  );
   return masked;
 }
 
