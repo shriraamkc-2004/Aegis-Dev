@@ -110,7 +110,7 @@ const PORT = parseInt(process.env.PORT || "3010");
 
 app.use(gatewayLoggingMiddleware);
 app.use(requestLoggerMiddleware);
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // Security Headers (relaxed CSP for dev mode Vite HMR)
@@ -777,7 +777,10 @@ app.post("/api/copilot/sessions", authenticateToken, async (req, res) => {
 app.get("/api/copilot/sessions", authenticateToken, async (req, res) => {
   try {
     const tenantId = getOrgId(req.user!);
-    const url = `${COPILOT_URL}/api/copilot/sessions?tenant_id=${tenantId}&user_id=${req.user!.id}&limit=${req.query.limit || 50}`;
+    const rawLimit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+    const limit =
+      isNaN(rawLimit) || rawLimit < 1 || rawLimit > 100 ? 50 : rawLimit;
+    const url = `${COPILOT_URL}/api/copilot/sessions?tenant_id=${tenantId}&user_id=${req.user!.id}&limit=${limit}`;
     const response = await fetch(url);
     res.status(response.status).json(await response.json());
   } catch (err: any) {
@@ -790,8 +793,12 @@ app.get(
   authenticateToken,
   async (req, res) => {
     try {
+      const sessionId = req.params.sessionId;
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(sessionId)) {
+        return res.status(400).json({ error: "Invalid session ID format" });
+      }
       const response = await fetch(
-        `${COPILOT_URL}/api/copilot/history/${req.params.sessionId}`,
+        `${COPILOT_URL}/api/copilot/history/${sessionId}`,
       );
       res.status(response.status).json(await response.json());
     } catch (err: any) {
@@ -805,8 +812,12 @@ app.delete(
   authenticateToken,
   async (req, res) => {
     try {
+      const sessionId = req.params.sessionId;
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(sessionId)) {
+        return res.status(400).json({ error: "Invalid session ID format" });
+      }
       const response = await fetch(
-        `${COPILOT_URL}/api/copilot/history/${req.params.sessionId}`,
+        `${COPILOT_URL}/api/copilot/history/${sessionId}`,
         { method: "DELETE" },
       );
       res.status(response.status).json(await response.json());
@@ -821,6 +832,10 @@ app.post(
   authenticateToken,
   async (req, res) => {
     try {
+      const sessionId = req.params.sessionId;
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(sessionId)) {
+        return res.status(400).json({ error: "Invalid session ID format" });
+      }
       const formData = new URLSearchParams();
       formData.append("role", req.body.role || "user");
       formData.append("content", req.body.content || "");
@@ -837,7 +852,7 @@ app.post(
       if (req.body.pending_action)
         formData.append("pending_action", req.body.pending_action);
       const response = await fetch(
-        `${COPILOT_URL}/api/copilot/history/${req.params.sessionId}/messages`,
+        `${COPILOT_URL}/api/copilot/history/${sessionId}/messages`,
         {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },

@@ -56,4 +56,36 @@ describe("Real-Time Anomaly Detection Engine Tests", () => {
     expect(finalResult.hybridScore).toBeGreaterThan(0);
     expect(finalResult.zScore).toBeGreaterThan(0);
   });
+
+  it("should compute sliding window aggregates (bytes, destinations, protocol) correctly", async () => {
+    const tNow = Date.now() / 1000;
+
+    contextEngine.addEvent({
+      event_type: "login_success",
+      source: "192.168.1.100",
+      timestamp: tNow,
+      bytes: 2048,
+      destination: "10.0.0.5",
+      protocol: "HTTPS",
+    });
+
+    contextEngine.addEvent({
+      event_type: "failed_login",
+      source: "192.168.1.101",
+      timestamp: tNow,
+      bytes: 512,
+      destination: "10.0.0.5",
+      protocol: "SSH",
+      severity: "HIGH",
+    });
+
+    expect(contextEngine.getBytesTransferred(60)).toBe(2560);
+    expect(contextEngine.getUniqueDestinationsCount(60)).toBe(1);
+    expect(contextEngine.getFailedAuthCount(60)).toBe(1);
+    expect(contextEngine.getAnomalyDensity(60)).toBe(1);
+
+    const protoDist = contextEngine.getProtocolDistribution(60);
+    expect(protoDist["HTTPS"]).toBe(1);
+    expect(protoDist["SSH"]).toBe(1);
+  });
 });

@@ -102,7 +102,18 @@ def load_documents_from_directory(
     Supports: .md, .txt, .json, .pdf, .rst, .docx
     """
     docs: List[Document] = []
-    dir_path = Path(directory)
+    try:
+        base_path = Path(KNOWLEDGE_BASE_DIR).resolve()
+        dir_path = Path(directory).resolve()
+        try:
+            dir_path.relative_to(base_path)
+        except ValueError:
+            logger.warning("Path traversal attempt blocked: '%s' is not relative to base '%s'", directory, base_path)
+            return docs
+    except Exception as exc:
+        logger.error("Error resolving ingestion directory: %s", exc)
+        return docs
+
     if not dir_path.exists():
         logger.warning("Knowledge directory does not exist: %s", directory)
         return docs

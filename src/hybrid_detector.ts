@@ -406,21 +406,14 @@ export class HybridDetector {
     }
 
     // 4. Compute scoring components
-    const currentRate = features.eventsPerSec;
+    const currentSecondRate = contextEngine.getGlobalRate(1) * 1;
 
-    // Calculate rolling Z-Score based on history
-    let zScore = 0;
-    if (this.featureHistory.length > 5) {
-      const rates = this.featureHistory.map((h) => h.eventsPerSec);
-      const sum = rates.reduce((a, b) => a + b, 0);
-      const mean = sum / rates.length;
-      const sqSum = rates.reduce(
-        (acc, val) => acc + Math.pow(val - mean, 2),
-        0,
-      );
-      const stdDev = Math.sqrt(sqSum / (rates.length - 1));
-      zScore = stdDev > 0 ? (currentRate - mean) / stdDev : 0;
-    }
+    // Calculate rolling Z-Score based on sliding window statistics
+    const rateStats = contextEngine.getGlobalRateStats(windowSec);
+    const zScore =
+      rateStats.stdDev > 0.001
+        ? (currentSecondRate - rateStats.mean) / rateStats.stdDev
+        : 0;
 
     let zScoreSeverity = "LOW";
     if (zScore > zScoreThreshold * 2) zScoreSeverity = "CRITICAL";
@@ -432,7 +425,7 @@ export class HybridDetector {
       iforestScore = this.iforest.score(featureVectorToArray(features));
     }
 
-    const ewmaState = this.ewma.update(currentRate);
+    const ewmaState = this.ewma.update(currentSecondRate);
     const ewmaScore = Math.abs(ewmaState.zScore);
 
     // 5. Threat Fusion
