@@ -235,6 +235,8 @@ async def ingest_uploaded_file(
     collection: str = Form("knowledge_base"),
     tag: str = Form(""),
     tenant_id: int = Form(1),
+    trust_level: str = Form("MEDIUM"),
+    provenance: str = Form("api_upload"),
 ):
     """Upload a file, store in MinIO, and ingest into RAG. Supports PDF, TXT, MD, DOCX."""
     if not _rag_pipeline:
@@ -292,7 +294,16 @@ async def ingest_uploaded_file(
     if not text.strip():
         return {"chunks_indexed": 0, "collection": collection, "filename": filename, "warning": "No text extracted from file."}
 
-    doc = Document(page_content=text, metadata={"source": filename, "filename": filename, "uploaded_by": "api"})
+    doc = Document(
+        page_content=text,
+        metadata={
+            "source": filename,
+            "filename": filename,
+            "uploaded_by": "api",
+            "trust_level": trust_level,
+            "provenance": provenance,
+        }
+    )
     count = _rag_pipeline.ingest_documents([doc], collection, tag, tenant_id)
 
     return {

@@ -269,6 +269,8 @@ class RAGPipeline:
                 "category": chunk.metadata.get("category", ""),
                 "uploaded_by": chunk.metadata.get("uploaded_by", ""),
                 "classification": chunk.metadata.get("classification", "internal"),
+                "trust_level": chunk.metadata.get("trust_level", "MEDIUM"),
+                "provenance": chunk.metadata.get("provenance", "unknown"),
                 "indexed_at": time.time(),
             })
 
@@ -353,6 +355,8 @@ class RAGPipeline:
                     "score": h["score"],
                     "collection": col,
                     "tag": h["payload"].get("tag", ""),
+                    "trust_level": h["payload"].get("trust_level", "MEDIUM"),
+                    "provenance": h["payload"].get("provenance", "unknown"),
                 })
 
         # Sort by relevance score descending
@@ -397,6 +401,8 @@ class RAGPipeline:
                 "filename": hit["filename"],
                 "collection": hit["collection"],
                 "score": round(hit["score"], 4),
+                "trust_level": hit.get("trust_level", "MEDIUM"),
+                "provenance": hit.get("provenance", "unknown"),
             })
 
         context_text = "\n\n---\n\n".join(context_parts)
