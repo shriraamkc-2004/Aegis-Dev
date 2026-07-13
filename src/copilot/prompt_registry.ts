@@ -12,7 +12,8 @@ export interface PromptEntry {
   tenant_id: number;
   name: string;
   version: number;
-  category: "general" | "analyst" | "audit" | "documentation" | "incident" | "system";
+  category:
+    "general" | "analyst" | "audit" | "documentation" | "incident" | "system";
   prompt_template: string;
   system_hint: string;
   variables: Record<string, string>;
@@ -35,7 +36,10 @@ export interface PromptVersion {
 
 // ─── Default Prompt Templates ───────────────────────────────────────────────────
 
-export const DEFAULT_PROMPTS: Omit<PromptEntry, "id" | "created_at" | "updated_at">[] = [
+export const DEFAULT_PROMPTS: Omit<
+  PromptEntry,
+  "id" | "created_at" | "updated_at"
+>[] = [
   {
     tenant_id: 1,
     name: "analyst_system",
@@ -44,7 +48,11 @@ export const DEFAULT_PROMPTS: Omit<PromptEntry, "id" | "created_at" | "updated_a
     prompt_template:
       "You are the Aegis Analyst Assistant. Help SOC analysts understand anomalies, " +
       "explain severity decisions, recommend mitigations, and guide investigations. " +
-      "Always reference specific data points and retrieved evidence.",
+      "Always reference specific data points and retrieved evidence. " +
+      "CRITICAL SAFETY LIMITS: " +
+      "1. ONLY reference facts present in the Evidence Bundle. " +
+      "2. NEVER speculate or invent CVEs, MITRE techniques, IPs, or threat actors. " +
+      "3. Cite all sources explicitly.",
     system_hint: "Analyst persona active. Cite all sources.",
     variables: {},
     is_active: true,
@@ -59,7 +67,11 @@ export const DEFAULT_PROMPTS: Omit<PromptEntry, "id" | "created_at" | "updated_a
     category: "audit",
     prompt_template:
       "You are the Aegis Audit Assistant. Summarize audit findings, highlight critical risks, " +
-      "and recommend OWASP Top 10 improvements. Cite specific evidence from audit logs.",
+      "and recommend OWASP Top 10 improvements. Cite specific evidence from audit logs. " +
+      "CRITICAL SAFETY LIMITS: " +
+      "1. ONLY reference facts present in the Evidence Bundle. " +
+      "2. NEVER speculate or invent CVEs, MITRE techniques, IPs, or threat actors. " +
+      "3. Cite all sources explicitly.",
     system_hint: "Audit persona active. Focus on compliance.",
     variables: {},
     is_active: true,
@@ -74,7 +86,11 @@ export const DEFAULT_PROMPTS: Omit<PromptEntry, "id" | "created_at" | "updated_a
     category: "documentation",
     prompt_template:
       "You are the Aegis Documentation Assistant. Explain system architecture, workflows, " +
-      "setup procedures, and operational guides. Reference documentation sources explicitly.",
+      "setup procedures, and operational guides. Reference documentation sources explicitly. " +
+      "CRITICAL SAFETY LIMITS: " +
+      "1. ONLY reference facts present in the Evidence Bundle. " +
+      "2. NEVER speculate or invent CVEs, MITRE techniques, IPs, or threat actors. " +
+      "3. Cite all sources explicitly.",
     system_hint: "Documentation persona active. Be precise.",
     variables: {},
     is_active: true,
@@ -89,7 +105,11 @@ export const DEFAULT_PROMPTS: Omit<PromptEntry, "id" | "created_at" | "updated_a
     category: "incident",
     prompt_template:
       "You are the Aegis Incident Intelligence Assistant. Retrieve similar historical incidents, " +
-      "summarize previous investigations, and recommend next steps based on lessons learned.",
+      "summarize previous investigations, and recommend next steps based on lessons learned. " +
+      "CRITICAL SAFETY LIMITS: " +
+      "1. ONLY reference facts present in the Evidence Bundle. " +
+      "2. NEVER speculate or invent CVEs, MITRE techniques, IPs, or threat actors. " +
+      "3. Cite all sources explicitly.",
     system_hint: "Incident persona active. Reference historical data.",
     variables: {},
     is_active: true,
@@ -107,11 +127,11 @@ export const DEFAULT_PROMPTS: Omit<PromptEntry, "id" | "created_at" | "updated_a
       "Available tools metadata:\n{{mcpToolsDesc}}\n\n" +
       "You MUST proceed strictly by outputting steps in the following formatting block:\n" +
       "Thought: <what you are reasoning>\n" +
-      "Action: <json representation of tool call, e.g. {\"name\": \"query_database\", \"arguments\": {\"sql_query\": \"SELECT ...\"}} >\n" +
+      'Action: <json representation of tool call, e.g. {"name": "query_database", "arguments": {"sql_query": "SELECT ..."}} >\n' +
       "Observation: <this will be provided in the next turn>\n\n" +
       "When the issue is resolved or you are summarizing, output:\n" +
       "Final Response: <your ultimate diagnosis and security mitigation summary>\n\n" +
-      "IMPORTANT: Do not duplicate or combine blocks. Exit immediately when producing a \"Final Response:\".\n" +
+      'IMPORTANT: Do not duplicate or combine blocks. Exit immediately when producing a "Final Response:".\n' +
       "Begin by inspecting recent event rates with a SELECT query via query_database.",
     system_hint: "ReAct agent persona active. Enforce ReAct format rules.",
     variables: {},
@@ -162,7 +182,7 @@ export class PromptRegistryService {
     tenantId: number,
     name: string,
     updates: Partial<PromptEntry>,
-    userId: number
+    userId: number,
   ): Promise<PromptEntry | null> {
     const key = `${tenantId}:${name}`;
     const versions = this.inMemoryStore.get(key);
@@ -187,17 +207,19 @@ export class PromptRegistryService {
 
   async getActivePrompt(
     tenantId: number,
-    name: string
+    name: string,
   ): Promise<PromptEntry | null> {
     const key = `${tenantId}:${name}`;
     const versions = this.inMemoryStore.get(key);
     if (!versions) return null;
-    return versions.find((v) => v.is_active) || versions[versions.length - 1] || null;
+    return (
+      versions.find((v) => v.is_active) || versions[versions.length - 1] || null
+    );
   }
 
   async getPromptVersions(
     tenantId: number,
-    name: string
+    name: string,
   ): Promise<PromptVersion[]> {
     const key = `${tenantId}:${name}`;
     const versions = this.inMemoryStore.get(key) || [];
@@ -228,7 +250,7 @@ export class PromptRegistryService {
     tenantId: number,
     name: string,
     targetVersion: number,
-    userId: number
+    userId: number,
   ): Promise<PromptEntry | null> {
     const key = `${tenantId}:${name}`;
     const versions = this.inMemoryStore.get(key);
@@ -255,7 +277,7 @@ export class PromptRegistryService {
   async markGovernanceReviewed(
     tenantId: number,
     name: string,
-    reviewerId: number
+    reviewerId: number,
   ): Promise<boolean> {
     const key = `${tenantId}:${name}`;
     const versions = this.inMemoryStore.get(key);
@@ -276,7 +298,7 @@ export class PromptRegistryService {
       total_prompts: this.inMemoryStore.size,
       total_versions: Array.from(this.inMemoryStore.values()).reduce(
         (sum, v) => sum + v.length,
-        0
+        0,
       ),
     };
   }

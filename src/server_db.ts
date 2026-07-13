@@ -6,13 +6,20 @@ import bcrypt from "bcryptjs";
 
 // Early validation of MODE to prevent raw stack trace throws during ESM import hoisting
 const dbCheckMode = process.env.MODE;
-if (process.env.NODE_ENV !== "test" && dbCheckMode !== "demo" && dbCheckMode !== "organization") {
+if (
+  process.env.NODE_ENV !== "test" &&
+  dbCheckMode !== "demo" &&
+  dbCheckMode !== "organization"
+) {
   console.error(`\n❌ [Fatal Error] Invalid MODE configuration!`);
-  console.error(`   Expected MODE='demo' or MODE='organization'. Got: '${dbCheckMode}'`);
-  console.error(`   Aegis startup aborted to prevent database contamination.\n`);
+  console.error(
+    `   Expected MODE='demo' or MODE='organization'. Got: '${dbCheckMode}'`,
+  );
+  console.error(
+    `   Aegis startup aborted to prevent database contamination.\n`,
+  );
   process.exit(1);
 }
-
 
 export function getActiveTelemetryDatabase(): string {
   const mode = process.env.MODE;
@@ -23,7 +30,9 @@ export function getActiveTelemetryDatabase(): string {
   } else if (process.env.NODE_ENV === "test" && process.env.SQLITE_DB) {
     return path.basename(process.env.SQLITE_DB);
   } else {
-    throw new Error("Invalid MODE. Expected 'demo' or 'organization'. Got: " + mode);
+    throw new Error(
+      "Invalid MODE. Expected 'demo' or 'organization'. Got: " + mode,
+    );
   }
 }
 
@@ -36,9 +45,13 @@ export function getAbsoluteTelemetryDbPath(): string {
   }
   if (process.env.NODE_ENV === "test" && process.env.SQLITE_DB) {
     const rawPath = process.env.SQLITE_DB;
-    return path.isAbsolute(rawPath) ? rawPath : path.resolve(process.cwd(), rawPath);
+    return path.isAbsolute(rawPath)
+      ? rawPath
+      : path.resolve(process.cwd(), rawPath);
   }
-  throw new Error("Invalid MODE. Expected 'demo' or 'organization'. Got: " + mode);
+  throw new Error(
+    "Invalid MODE. Expected 'demo' or 'organization'. Got: " + mode,
+  );
 }
 
 export function getAbsoluteCoreDbPath(): string {
@@ -66,7 +79,10 @@ if (!fs.existsSync(DB_DIR)) {
 // Establish core and telemetry SQLite connections
 const coreDbConn = new sqlite3.Database(CORE_DB_PATH, (err) => {
   if (err) {
-    console.error(`Failed to connect to core SQLite ${path.basename(CORE_DB_PATH)}:`, err);
+    console.error(
+      `Failed to connect to core SQLite ${path.basename(CORE_DB_PATH)}:`,
+      err,
+    );
   } else {
     coreDbConn.run("PRAGMA journal_mode=WAL;");
     coreDbConn.run("PRAGMA synchronous=NORMAL;");
@@ -77,7 +93,10 @@ const coreDbConn = new sqlite3.Database(CORE_DB_PATH, (err) => {
 
 const telemetryDbConn = new sqlite3.Database(TELEMETRY_DB_PATH, (err) => {
   if (err) {
-    console.error(`Failed to connect to telemetry SQLite ${path.basename(TELEMETRY_DB_PATH)}:`, err);
+    console.error(
+      `Failed to connect to telemetry SQLite ${path.basename(TELEMETRY_DB_PATH)}:`,
+      err,
+    );
   } else {
     telemetryDbConn.run("PRAGMA journal_mode=WAL;");
     telemetryDbConn.run("PRAGMA synchronous=NORMAL;");
@@ -87,7 +106,13 @@ const telemetryDbConn = new sqlite3.Database(TELEMETRY_DB_PATH, (err) => {
 });
 
 // Telemetry tables for routing
-const TELEMETRY_TABLES = ["events", "anomalies", "incidents", "notifications", "agent_logs"];
+const TELEMETRY_TABLES = [
+  "events",
+  "anomalies",
+  "incidents",
+  "notifications",
+  "agent_logs",
+];
 
 function getDbConn(sql: string): sqlite3.Database {
   const sqlLower = sql.toLowerCase();
@@ -100,7 +125,10 @@ function getDbConn(sql: string): sqlite3.Database {
 }
 
 // SQLite interface wrapper executing insertions
-export const dbRun = (sql: string, params: any[] = []): Promise<{ lastID: number; changes: number }> => {
+export const dbRun = (
+  sql: string,
+  params: any[] = [],
+): Promise<{ lastID: number; changes: number }> => {
   return new Promise((resolve, reject) => {
     const db = getDbConn(sql);
     db.run(sql, params, function (err) {
@@ -114,7 +142,10 @@ export const dbRun = (sql: string, params: any[] = []): Promise<{ lastID: number
 };
 
 // SQLite interface wrapper executing batch queries
-export const dbAll = <T = any>(sql: string, params: any[] = []): Promise<T[]> => {
+export const dbAll = <T = any>(
+  sql: string,
+  params: any[] = [],
+): Promise<T[]> => {
   return new Promise((resolve, reject) => {
     const db = getDbConn(sql);
     db.all(sql, params, (err, rows) => {
@@ -128,7 +159,10 @@ export const dbAll = <T = any>(sql: string, params: any[] = []): Promise<T[]> =>
 };
 
 // SQLite interface wrapper executing batch queries on a read-only database connection
-export const dbAllReadOnly = <T = any>(sql: string, params: any[] = []): Promise<T[]> => {
+export const dbAllReadOnly = <T = any>(
+  sql: string,
+  params: any[] = [],
+): Promise<T[]> => {
   return new Promise((resolve, reject) => {
     const isTelemetry = getDbConn(sql) === telemetryDbConn;
     const dbPath = isTelemetry ? TELEMETRY_DB_PATH : CORE_DB_PATH;
@@ -157,7 +191,10 @@ export const dbAllReadOnly = <T = any>(sql: string, params: any[] = []): Promise
 };
 
 // SQLite interface wrapper executing single queries
-export const dbGet = <T = any>(sql: string, params: any[] = []): Promise<T | undefined> => {
+export const dbGet = <T = any>(
+  sql: string,
+  params: any[] = [],
+): Promise<T | undefined> => {
   return new Promise((resolve, reject) => {
     const db = getDbConn(sql);
     db.get(sql, params, (err, row) => {
@@ -170,14 +207,14 @@ export const dbGet = <T = any>(sql: string, params: any[] = []): Promise<T | und
   });
 };
 
-
 // SQLite Schema initialization
 export async function initServerDb(): Promise<void> {
   const initCore = (): Promise<void> => {
     return new Promise((resolve, reject) => {
       coreDbConn.serialize(() => {
         // 1. Organizations Table (multi-tenant)
-        coreDbConn.run(`
+        coreDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS organizations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -185,10 +222,15 @@ export async function initServerDb(): Promise<void> {
             created_at REAL DEFAULT (strftime('%s','now')),
             status TEXT DEFAULT 'active'
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // 2. Users Table (JWT + bcrypt)
-        coreDbConn.run(`
+        coreDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
@@ -202,10 +244,15 @@ export async function initServerDb(): Promise<void> {
             status TEXT DEFAULT 'active',
             FOREIGN KEY(organization_id) REFERENCES organizations(id)
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // 7. Audit Logs Table
-        coreDbConn.run(`
+        coreDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER DEFAULT NULL,
@@ -217,10 +264,15 @@ export async function initServerDb(): Promise<void> {
             timestamp REAL DEFAULT (strftime('%s','now')),
             organization_id INTEGER DEFAULT 1
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // 9. Connectors Table (database connector framework)
-        coreDbConn.run(`
+        coreDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS connectors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -236,10 +288,15 @@ export async function initServerDb(): Promise<void> {
             created_at REAL DEFAULT (strftime('%s','now')),
             last_tested REAL DEFAULT NULL
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // 10. Connector Schemas Cache (discovered tables/collections)
-        coreDbConn.run(`
+        coreDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS connector_schemas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             connector_id INTEGER NOT NULL,
@@ -250,10 +307,15 @@ export async function initServerDb(): Promise<void> {
             discovered_at REAL DEFAULT (strftime('%s','now')),
             FOREIGN KEY(connector_id) REFERENCES connectors(id)
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // 11. Event Mappings (normalization rules per connector)
-        coreDbConn.run(`
+        coreDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS event_mappings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             connector_id INTEGER NOT NULL,
@@ -267,10 +329,15 @@ export async function initServerDb(): Promise<void> {
             created_at REAL DEFAULT (strftime('%s','now')),
             FOREIGN KEY(connector_id) REFERENCES connectors(id)
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // 12. Demo Sessions (track replay sessions)
-        coreDbConn.run(`
+        coreDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS demo_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -281,11 +348,13 @@ export async function initServerDb(): Promise<void> {
             completed_at REAL DEFAULT NULL,
             FOREIGN KEY(user_id) REFERENCES users(id)
           )
-        `, (err) => {
-          if (err) return reject(err);
-          console.log(`Core metadata database schemas configured.`);
-          resolve();
-        });
+        `,
+          (err) => {
+            if (err) return reject(err);
+            console.log(`Core metadata database schemas configured.`);
+            resolve();
+          },
+        );
       });
     });
   };
@@ -294,7 +363,8 @@ export async function initServerDb(): Promise<void> {
     return new Promise((resolve, reject) => {
       telemetryDbConn.serialize(() => {
         // 3. Events Table
-        telemetryDbConn.run(`
+        telemetryDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             event_type TEXT,
@@ -304,10 +374,15 @@ export async function initServerDb(): Promise<void> {
             organization_id INTEGER DEFAULT 1,
             formatted_time TEXT GENERATED ALWAYS AS (datetime(timestamp, 'unixepoch'))
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // 4. Anomalies Table
-        telemetryDbConn.run(`
+        telemetryDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS anomalies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp REAL,
@@ -330,10 +405,15 @@ export async function initServerDb(): Promise<void> {
             recommendation TEXT DEFAULT '',
             formatted_time TEXT GENERATED ALWAYS AS (datetime(timestamp, 'unixepoch'))
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // 5. Agent Trace Logs Table
-        telemetryDbConn.run(`
+        telemetryDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS agent_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             anomaly_id INTEGER,
@@ -344,10 +424,15 @@ export async function initServerDb(): Promise<void> {
             formatted_time TEXT GENERATED ALWAYS AS (datetime(timestamp, 'unixepoch')),
             FOREIGN KEY(anomaly_id) REFERENCES anomalies(id)
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // 6. Incidents Table (incident management)
-        telemetryDbConn.run(`
+        telemetryDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS incidents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             anomaly_id INTEGER DEFAULT NULL,
@@ -377,10 +462,15 @@ export async function initServerDb(): Promise<void> {
             updated_at REAL DEFAULT (strftime('%s','now')),
             FOREIGN KEY(anomaly_id) REFERENCES anomalies(id)
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // 8. Notifications Table
-        telemetryDbConn.run(`
+        telemetryDbConn.run(
+          `
           CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT NOT NULL CHECK(type IN ('discord','email','slack','teams','telegram')),
@@ -392,7 +482,102 @@ export async function initServerDb(): Promise<void> {
             organization_id INTEGER DEFAULT 1,
             created_at REAL DEFAULT (strftime('%s','now'))
           )
-        `, (err) => { if (err) return reject(err); });
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
+
+        // 9. AI Governance Audit Logs Table
+        telemetryDbConn.run(
+          `
+          CREATE TABLE IF NOT EXISTS ai_audit_logs (
+            id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+            audit_id                  TEXT NOT NULL UNIQUE,
+            prompt_id                 TEXT NOT NULL,
+            request_id                TEXT NOT NULL,
+            session_id                TEXT,
+            evidence_version          TEXT NOT NULL,
+            model_version             TEXT NOT NULL,
+            prompt_template_version   INTEGER NOT NULL DEFAULT 1,
+            response_schema_version   TEXT NOT NULL DEFAULT '2.0.0',
+            user_id                   INTEGER,
+            tenant_id                 INTEGER NOT NULL,
+            user_role                 TEXT NOT NULL DEFAULT 'unknown',
+            ip_address                TEXT NOT NULL,
+            request_timestamp         INTEGER NOT NULL,
+            response_timestamp        INTEGER NOT NULL,
+            latency_ms                INTEGER NOT NULL DEFAULT 0,
+            prompt_hash               TEXT NOT NULL,
+            response_hash             TEXT NOT NULL,
+            evidence_bundle_hash      TEXT NOT NULL,
+            guardrail_allowed         INTEGER NOT NULL DEFAULT 1,
+            guardrail_violations      TEXT NOT NULL DEFAULT '[]',
+            evidence_valid            INTEGER NOT NULL DEFAULT 1,
+            evidence_missing_fields   TEXT NOT NULL DEFAULT '[]',
+            confidence_level          TEXT NOT NULL DEFAULT 'LOW',
+            confidence_score          REAL NOT NULL DEFAULT 0,
+            rag_documents_retrieved   INTEGER NOT NULL DEFAULT 0,
+            truth_score               REAL NOT NULL DEFAULT 0,
+            hallucinations_detected   TEXT NOT NULL DEFAULT '[]',
+            outcome                   TEXT NOT NULL,
+            policy_violations         TEXT NOT NULL DEFAULT '[]',
+            safe_fallback_used        INTEGER NOT NULL DEFAULT 0,
+            tokens_input              INTEGER NOT NULL DEFAULT 0,
+            tokens_output             INTEGER NOT NULL DEFAULT 0,
+            created_at                INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+          )
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
+
+        // 10. AI Decision Ledger Table
+        telemetryDbConn.run(
+          `
+          CREATE TABLE IF NOT EXISTS ai_decision_ledger (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            ledger_id           TEXT NOT NULL UNIQUE,
+            audit_id            TEXT NOT NULL,
+            tenant_id           INTEGER NOT NULL,
+            anomaly_id          INTEGER,
+            decision_type       TEXT NOT NULL,
+            decision_timestamp  INTEGER NOT NULL,
+            evidence_hash       TEXT NOT NULL,
+            truth_score         REAL NOT NULL DEFAULT 0,
+            confidence_level    TEXT NOT NULL DEFAULT 'LOW',
+            outcome             TEXT NOT NULL,
+            model_version       TEXT NOT NULL,
+            analyst_feedback    TEXT,
+            feedback_timestamp  INTEGER,
+            feedback_notes      TEXT,
+            created_at          INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+          )
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
+
+        // 11. AI Response Feedback Table
+        telemetryDbConn.run(
+          `
+          CREATE TABLE IF NOT EXISTS ai_response_feedback (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            audit_id          TEXT NOT NULL,
+            tenant_id         INTEGER NOT NULL,
+            rating            TEXT NOT NULL,
+            corrected_text    TEXT,
+            notes             TEXT,
+            analyst_user_id   INTEGER NOT NULL,
+            timestamp         INTEGER NOT NULL
+          )
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
 
         // Conditionally create enterprise sandbox tables only in Organization Mode
         if (process.env.MODE === "organization") {
@@ -401,10 +586,11 @@ export async function initServerDb(): Promise<void> {
             "firewall_logs",
             "vpn_logs",
             "network_events",
-            "application_logs"
+            "application_logs",
           ];
           sandboxTables.forEach((tbl, idx) => {
-            telemetryDbConn.run(`
+            telemetryDbConn.run(
+              `
               CREATE TABLE IF NOT EXISTS "${tbl}" (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_time REAL NOT NULL,
@@ -422,12 +608,14 @@ export async function initServerDb(): Promise<void> {
                 severity_level TEXT DEFAULT 'LOW',
                 table_name TEXT DEFAULT '${tbl}'
               )
-            `, (err) => {
-              if (err) return reject(err);
-              if (idx === sandboxTables.length - 1) {
-                runMigrationsAndResolve();
-              }
-            });
+            `,
+              (err) => {
+                if (err) return reject(err);
+                if (idx === sandboxTables.length - 1) {
+                  runMigrationsAndResolve();
+                }
+              },
+            );
           });
         } else {
           runMigrationsAndResolve();
@@ -438,10 +626,13 @@ export async function initServerDb(): Promise<void> {
           const anomaliesCols = [
             { name: "possible_threat", type: "TEXT DEFAULT ''" },
             { name: "threat_confidence", type: "REAL DEFAULT 0" },
-            { name: "recommendation", type: "TEXT DEFAULT ''" }
+            { name: "recommendation", type: "TEXT DEFAULT ''" },
           ];
           for (const col of anomaliesCols) {
-            telemetryDbConn.run(`ALTER TABLE anomalies ADD COLUMN ${col.name} ${col.type}`, (alterErr) => {});
+            telemetryDbConn.run(
+              `ALTER TABLE anomalies ADD COLUMN ${col.name} ${col.type}`,
+              (alterErr) => {},
+            );
           }
 
           // Safe migrations for incidents table
@@ -454,17 +645,22 @@ export async function initServerDb(): Promise<void> {
             { name: "discord_channel_id", type: "TEXT DEFAULT NULL" },
             { name: "mitigation_summary", type: "TEXT DEFAULT ''" },
             { name: "agent_summary", type: "TEXT DEFAULT ''" },
-            { name: "resolution_status", type: "TEXT DEFAULT ''" }
+            { name: "resolution_status", type: "TEXT DEFAULT ''" },
           ];
           for (const col of incidentsCols) {
-            telemetryDbConn.run(`ALTER TABLE incidents ADD COLUMN ${col.name} ${col.type}`, (alterErr) => {});
+            telemetryDbConn.run(
+              `ALTER TABLE incidents ADD COLUMN ${col.name} ${col.type}`,
+              (alterErr) => {},
+            );
           }
 
           telemetryDbConn.run("SELECT 1", (err) => {
             if (err) {
               reject(err);
             } else {
-              console.log(`Telemetry database SQLite ${path.basename(TELEMETRY_DB_PATH)} configured.`);
+              console.log(
+                `Telemetry database SQLite ${path.basename(TELEMETRY_DB_PATH)} configured.`,
+              );
               resolve();
             }
           });
@@ -482,30 +678,78 @@ export async function initServerDb(): Promise<void> {
 async function seedDefaultData(): Promise<void> {
   try {
     // Check if default org exists
-    const org = await dbGet<{ id: number }>("SELECT id FROM organizations WHERE id = 1");
+    const org = await dbGet<{ id: number }>(
+      "SELECT id FROM organizations WHERE id = 1",
+    );
     if (!org) {
-      await dbRun("INSERT INTO organizations (id, name, description) VALUES (1, 'Default Organization', 'Primary tenant organization')");
+      await dbRun(
+        "INSERT INTO organizations (id, name, description) VALUES (1, 'Default Organization', 'Primary tenant organization')",
+      );
       console.log("Seeded default organization.");
     }
 
     // Check if any users exist
-    const userCount = await dbGet<{ total: number }>("SELECT COUNT(*) as total FROM users");
+    const userCount = await dbGet<{ total: number }>(
+      "SELECT COUNT(*) as total FROM users",
+    );
     if (!userCount || userCount.total === 0) {
       const salt = bcrypt.genSaltSync(10);
       const users = [
-        { username: "superadmin", password: "admin123", role: "super_admin", org_id: null, mode: "org" },
-        { username: "admin", password: "admin123", role: "org_admin", org_id: 1, mode: "org" },
-        { username: "analyst", password: "analyst123", role: "soc_analyst", org_id: 1, mode: "org" },
-        { username: "viewer", password: "viewer123", role: "executive_viewer", org_id: 1, mode: "org" },
-        { username: "demo_admin", password: "demo123", role: "demo_admin", org_id: null, mode: "demo" },
-        { username: "demo_analyst", password: "demo123", role: "demo_analyst", org_id: null, mode: "demo" },
-        { username: "demo_viewer", password: "demo123", role: "demo_viewer", org_id: null, mode: "demo" },
+        {
+          username: "superadmin",
+          password: "admin123",
+          role: "super_admin",
+          org_id: null,
+          mode: "org",
+        },
+        {
+          username: "admin",
+          password: "admin123",
+          role: "org_admin",
+          org_id: 1,
+          mode: "org",
+        },
+        {
+          username: "analyst",
+          password: "analyst123",
+          role: "soc_analyst",
+          org_id: 1,
+          mode: "org",
+        },
+        {
+          username: "viewer",
+          password: "viewer123",
+          role: "executive_viewer",
+          org_id: 1,
+          mode: "org",
+        },
+        {
+          username: "demo_admin",
+          password: "demo123",
+          role: "demo_admin",
+          org_id: null,
+          mode: "demo",
+        },
+        {
+          username: "demo_analyst",
+          password: "demo123",
+          role: "demo_analyst",
+          org_id: null,
+          mode: "demo",
+        },
+        {
+          username: "demo_viewer",
+          password: "demo123",
+          role: "demo_viewer",
+          org_id: null,
+          mode: "demo",
+        },
       ];
       for (const u of users) {
         const hash = bcrypt.hashSync(u.password, salt);
         await dbRun(
           "INSERT INTO users (username, password_hash, role, organization_id, mode) VALUES (?, ?, ?, ?, ?)",
-          [u.username, hash, u.role, u.org_id, u.mode]
+          [u.username, hash, u.role, u.org_id, u.mode],
         );
       }
       console.log("Seeded 7 default users (4 org + 3 demo).");
@@ -517,7 +761,8 @@ async function seedDefaultData(): Promise<void> {
 
 // Keep SQLite DB clean by pruning older entries
 export async function pruneOldEvents(): Promise<void> {
-  let eventRetentionSec = parseInt(process.env.RETENTION_SECONDS || "600") || 600;
+  let eventRetentionSec =
+    parseInt(process.env.RETENTION_SECONDS || "600") || 600;
   if (process.env.EVENT_RETENTION_DAYS) {
     const days = parseInt(process.env.EVENT_RETENTION_DAYS);
     if (!isNaN(days)) {
@@ -547,17 +792,27 @@ export async function pruneOldEvents(): Promise<void> {
   const incidentCutoff = nowSec - incidentRetentionSec;
 
   try {
-    const resEvents = await dbRun("DELETE FROM events WHERE timestamp < ?", [eventCutoff]);
+    const resEvents = await dbRun("DELETE FROM events WHERE timestamp < ?", [
+      eventCutoff,
+    ]);
     if (resEvents && resEvents.changes && resEvents.changes > 0) {
-      console.log(`Pruned ${resEvents.changes} historical events to optimize SQLite storage.`);
+      console.log(
+        `Pruned ${resEvents.changes} historical events to optimize SQLite storage.`,
+      );
     }
 
-    const resAnomalies = await dbRun("DELETE FROM anomalies WHERE timestamp < ?", [anomalyCutoff]);
+    const resAnomalies = await dbRun(
+      "DELETE FROM anomalies WHERE timestamp < ?",
+      [anomalyCutoff],
+    );
     if (resAnomalies && resAnomalies.changes && resAnomalies.changes > 0) {
       console.log(`Pruned ${resAnomalies.changes} historical anomalies.`);
     }
 
-    const resIncidents = await dbRun("DELETE FROM incidents WHERE detection_time < ?", [incidentCutoff]);
+    const resIncidents = await dbRun(
+      "DELETE FROM incidents WHERE detection_time < ?",
+      [incidentCutoff],
+    );
     if (resIncidents && resIncidents.changes && resIncidents.changes > 0) {
       console.log(`Pruned ${resIncidents.changes} historical incidents.`);
     }

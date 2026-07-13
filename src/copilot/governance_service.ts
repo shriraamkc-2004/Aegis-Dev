@@ -66,8 +66,8 @@ export interface PromptVersion {
 
 // ─── Configuration ──────────────────────────────────────────────────────────────
 
-const CONFIDENCE_HIGH = 0.80;
-const CONFIDENCE_MODERATE = 0.50;
+const CONFIDENCE_HIGH = 0.8;
+const CONFIDENCE_MODERATE = 0.5;
 const CONFIDENCE_LOW = 0.0;
 
 const HIGH_IMPACT_ACTIONS = [
@@ -93,69 +93,134 @@ export interface AIBoundary {
 }
 
 export const AI_BOUNDARIES: AIBoundary[] = [
-  { id: "BOUNDARY_001", name: "No Automatic IP Blocking", description: "AI MUST NEVER automatically block IP addresses.", severity: "critical", enforcement: "hard_block" },
-  { id: "BOUNDARY_002", name: "No Endpoint Isolation", description: "AI MUST NEVER automatically isolate endpoints.", severity: "critical", enforcement: "hard_block" },
-  { id: "BOUNDARY_003", name: "No Account Disabling", description: "AI MUST NEVER automatically disable user accounts.", severity: "critical", enforcement: "hard_block" },
-  { id: "BOUNDARY_004", name: "No Threshold Alteration", description: "AI MUST NEVER automatically alter anomaly detection thresholds.", severity: "critical", enforcement: "hard_block" },
-  { id: "BOUNDARY_005", name: "No Mitigation Execution", description: "AI MUST NEVER automatically execute mitigation commands.", severity: "critical", enforcement: "hard_block" },
-  { id: "BOUNDARY_006", name: "No RBAC Override", description: "AI MUST NEVER override Role-Based Access Control permissions.", severity: "critical", enforcement: "hard_block" },
-  { id: "BOUNDARY_007", name: "No Cross-Tenant Access", description: "AI MUST NEVER access data belonging to another tenant.", severity: "critical", enforcement: "hard_block" },
-  { id: "BOUNDARY_008", name: "No Secret Exposure", description: "AI MUST NEVER expose secrets, credentials, or restricted information.", severity: "critical", enforcement: "hard_block" },
-  { id: "BOUNDARY_009", name: "No Evidence Fabrication", description: "AI MUST NEVER fabricate evidence or citations.", severity: "critical", enforcement: "hard_block" },
-  { id: "BOUNDARY_010", name: "No Unsupported Claims", description: "AI MUST NEVER provide answers unsupported by retrieved knowledge.", severity: "high", enforcement: "hard_block" },
+  {
+    id: "BOUNDARY_001",
+    name: "No Automatic IP Blocking",
+    description: "AI MUST NEVER automatically block IP addresses.",
+    severity: "critical",
+    enforcement: "hard_block",
+  },
+  {
+    id: "BOUNDARY_002",
+    name: "No Endpoint Isolation",
+    description: "AI MUST NEVER automatically isolate endpoints.",
+    severity: "critical",
+    enforcement: "hard_block",
+  },
+  {
+    id: "BOUNDARY_003",
+    name: "No Account Disabling",
+    description: "AI MUST NEVER automatically disable user accounts.",
+    severity: "critical",
+    enforcement: "hard_block",
+  },
+  {
+    id: "BOUNDARY_004",
+    name: "No Threshold Alteration",
+    description:
+      "AI MUST NEVER automatically alter anomaly detection thresholds.",
+    severity: "critical",
+    enforcement: "hard_block",
+  },
+  {
+    id: "BOUNDARY_005",
+    name: "No Mitigation Execution",
+    description: "AI MUST NEVER automatically execute mitigation commands.",
+    severity: "critical",
+    enforcement: "hard_block",
+  },
+  {
+    id: "BOUNDARY_006",
+    name: "No RBAC Override",
+    description:
+      "AI MUST NEVER override Role-Based Access Control permissions.",
+    severity: "critical",
+    enforcement: "hard_block",
+  },
+  {
+    id: "BOUNDARY_007",
+    name: "No Cross-Tenant Access",
+    description: "AI MUST NEVER access data belonging to another tenant.",
+    severity: "critical",
+    enforcement: "hard_block",
+  },
+  {
+    id: "BOUNDARY_008",
+    name: "No Secret Exposure",
+    description:
+      "AI MUST NEVER expose secrets, credentials, or restricted information.",
+    severity: "critical",
+    enforcement: "hard_block",
+  },
+  {
+    id: "BOUNDARY_009",
+    name: "No Evidence Fabrication",
+    description: "AI MUST NEVER fabricate evidence or citations.",
+    severity: "critical",
+    enforcement: "hard_block",
+  },
+  {
+    id: "BOUNDARY_010",
+    name: "No Unsupported Claims",
+    description:
+      "AI MUST NEVER provide answers unsupported by retrieved knowledge.",
+    severity: "high",
+    enforcement: "hard_block",
+  },
 ];
 
 // Patterns that indicate boundary violations in AI responses
-const BOUNDARY_VIOLATION_PATTERNS: { boundary: string; patterns: RegExp[] }[] = [
-  {
-    boundary: "BOUNDARY_001",
-    patterns: [
-      /\b(blocking|blocked|will\s+block)\s+(ip|address|host)\b/i,
-      /\bip\s+(blocking|blacklist|firewall\s+rule)\s+(applied|executed|activated)\b/i,
-    ],
-  },
-  {
-    boundary: "BOUNDARY_002",
-    patterns: [
-      /\b(isolating|isolated|will\s+isolate)\s+(endpoint|host|machine|device)\b/i,
-      /\bendpoint\s+(quarantine|isolation)\s+(applied|executed)\b/i,
-    ],
-  },
-  {
-    boundary: "BOUNDARY_003",
-    patterns: [
-      /\b(disabling|disabled|will\s+disable)\s+(account|user|credential)\b/i,
-      /\baccount\s+(disabled|locked|suspended)\s+(automatically|now)\b/i,
-    ],
-  },
-  {
-    boundary: "BOUNDARY_004",
-    patterns: [
-      /\b(changing|changed|adjusted|modifying)\s+(threshold|sensitivity|detection\s+parameter)\b/i,
-      /\bthreshold\s+(set|changed|adjusted)\s+to\b/i,
-    ],
-  },
-  {
-    boundary: "BOUNDARY_005",
-    patterns: [
-      /\b(executing|executed|running)\s+(mitigation|remediation|countermeasure)\b/i,
-      /\bmitigation\s+(applied|deployed|executed|activated)\b/i,
-    ],
-  },
-  {
-    boundary: "BOUNDARY_006",
-    patterns: [
-      /\b(overriding|bypassing|escalating)\s+(rbac|permission|access\s+control|role)\b/i,
-      /\bprivilege\s+(escalation|elevation)\s+(applied|granted)\b/i,
-    ],
-  },
-  {
-    boundary: "BOUNDARY_008",
-    patterns: [
-      /\b(api[_\s]?key|password|secret|credential|token)\s*[:=]\s*["']?[A-Za-z0-9_\-]{8,}/gi,
-    ],
-  },
-];
+const BOUNDARY_VIOLATION_PATTERNS: { boundary: string; patterns: RegExp[] }[] =
+  [
+    {
+      boundary: "BOUNDARY_001",
+      patterns: [
+        /\b(blocking|blocked|will\s+block)\s+(ip|address|host)\b/i,
+        /\bip\s+(blocking|blacklist|firewall\s+rule)\s+(applied|executed|activated)\b/i,
+      ],
+    },
+    {
+      boundary: "BOUNDARY_002",
+      patterns: [
+        /\b(isolating|isolated|will\s+isolate)\s+(endpoint|host|machine|device)\b/i,
+        /\bendpoint\s+(quarantine|isolation)\s+(applied|executed)\b/i,
+      ],
+    },
+    {
+      boundary: "BOUNDARY_003",
+      patterns: [
+        /\b(disabling|disabled|will\s+disable)\s+(account|user|credential)\b/i,
+        /\baccount\s+(disabled|locked|suspended)\s+(automatically|now)\b/i,
+      ],
+    },
+    {
+      boundary: "BOUNDARY_004",
+      patterns: [
+        /\b(changing|changed|adjusted|modifying)\s+(threshold|sensitivity|detection\s+parameter)\b/i,
+        /\bthreshold\s+(set|changed|adjusted)\s+to\b/i,
+      ],
+    },
+    {
+      boundary: "BOUNDARY_005",
+      patterns: [
+        /\b(executing|executed|running)\s+(mitigation|remediation|countermeasure)\b/i,
+        /\bmitigation\s+(applied|deployed|executed|activated)\b/i,
+      ],
+    },
+    {
+      boundary: "BOUNDARY_006",
+      patterns: [
+        /\b(overriding|bypassing|escalating)\s+(rbac|permission|access\s+control|role)\b/i,
+        /\bprivilege\s+(escalation|elevation)\s+(applied|granted)\b/i,
+      ],
+    },
+    {
+      boundary: "BOUNDARY_008",
+      patterns: [
+        /\b(api[_\s]?key|password|secret|credential|token)\s*[:=]\s*["']?[A-Za-z0-9_\-]{8,}/gi,
+      ],
+    },
+  ];
 
 const SAFE_FALLBACK_RESPONSE =
   "I could not find sufficient evidence in the indexed knowledge base to answer this confidently. " +
@@ -164,10 +229,19 @@ const SAFE_FALLBACK_RESPONSE =
 // PII patterns for masking
 const PII_PATTERNS: { pattern: RegExp; label: string }[] = [
   { pattern: /\b\d{3}-\d{2}-\d{4}\b/g, label: "[SSN]" },
-  { pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, label: "[EMAIL]" },
+  {
+    pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
+    label: "[EMAIL]",
+  },
   { pattern: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, label: "[IP]" },
-  { pattern: /\b(?:sk|pk|ak|key)[-_]?[A-Za-z0-9]{16,}\b/gi, label: "[API_KEY]" },
-  { pattern: /(?:password|passwd|secret|token)\s*[:=]\s*["']?[^\s"']+/gi, label: "[SECRET]" },
+  {
+    pattern: /\b(?:sk|pk|ak|key)[-_]?[A-Za-z0-9]{16,}\b/gi,
+    label: "[API_KEY]",
+  },
+  {
+    pattern: /(?:password|passwd|secret|token)\s*[:=]\s*["']?[^\s"']+/gi,
+    label: "[SECRET]",
+  },
 ];
 
 // ─── Governance Service ─────────────────────────────────────────────────────────
@@ -193,15 +267,20 @@ export class GovernanceService {
   detectHallucination(
     response: string,
     sources: RetrievedDocument[],
-    confidence: number
+    confidence: number,
   ): boolean {
     // If no sources and high-confidence claims detected, likely hallucination
     if (sources.length === 0 && confidence < CONFIDENCE_MODERATE) return true;
 
     // Check for unsupported absolute claims
-    const absolutePatterns = /\b(always|never|definitely|certainly|guaranteed|100%)\b/gi;
+    const absolutePatterns =
+      /\b(always|never|definitely|certainly|guaranteed|100%)\b/gi;
     const hasAbsoluteClaims = absolutePatterns.test(response);
-    if (hasAbsoluteClaims && confidence < CONFIDENCE_HIGH && sources.length < 2) {
+    if (
+      hasAbsoluteClaims &&
+      confidence < CONFIDENCE_HIGH &&
+      sources.length < 2
+    ) {
       return true;
     }
 
@@ -212,7 +291,7 @@ export class GovernanceService {
 
   validateCitations(
     response: string,
-    sources: RetrievedDocument[]
+    sources: RetrievedDocument[],
   ): { valid: boolean; citedCount: number; uncited: string[] } {
     if (sources.length === 0) {
       return { valid: false, citedCount: 0, uncited: [] };
@@ -286,7 +365,9 @@ export class GovernanceService {
 
     for (const pat of autonomousPatterns) {
       if (pat.test(combined)) {
-        violations.push("AUTONOMOUS_ACTION_DETECTED: AI must not execute actions autonomously");
+        violations.push(
+          "AUTONOMOUS_ACTION_DETECTED: AI must not execute actions autonomously",
+        );
       }
     }
 
@@ -298,7 +379,9 @@ export class GovernanceService {
 
     for (const pat of speculativePatterns) {
       if (pat.test(combined)) {
-        violations.push("SPECULATIVE_CLAIM: Response contains unsupported speculation");
+        violations.push(
+          "SPECULATIVE_CLAIM: Response contains unsupported speculation",
+        );
       }
     }
 
@@ -310,7 +393,7 @@ export class GovernanceService {
   enforceAIBoundaries(
     response: string,
     prompt: string,
-    tenantId: number | null
+    tenantId: number | null,
   ): { violations: string[]; blocked: boolean; details: string[] } {
     const violations: string[] = [];
     const details: string[] = [];
@@ -322,7 +405,9 @@ export class GovernanceService {
           const boundaryDef = AI_BOUNDARIES.find((b) => b.id === boundary);
           if (boundaryDef) {
             violations.push(boundary);
-            details.push(`[${boundary}] ${boundaryDef.name}: ${boundaryDef.description}`);
+            details.push(
+              `[${boundary}] ${boundaryDef.name}: ${boundaryDef.description}`,
+            );
           }
           break;
         }
@@ -337,7 +422,9 @@ export class GovernanceService {
     for (const pattern of crossTenantPatterns) {
       if (pattern.test(combined)) {
         violations.push("BOUNDARY_007");
-        details.push("[BOUNDARY_007] No Cross-Tenant Access: AI must not access data belonging to another tenant.");
+        details.push(
+          "[BOUNDARY_007] No Cross-Tenant Access: AI must not access data belonging to another tenant.",
+        );
         break;
       }
     }
@@ -350,7 +437,9 @@ export class GovernanceService {
     for (const pattern of unsupportedPatterns) {
       if (pattern.test(response)) {
         violations.push("BOUNDARY_010");
-        details.push("[BOUNDARY_010] No Unsupported Claims: Response contains definitive claims without sufficient evidence.");
+        details.push(
+          "[BOUNDARY_010] No Unsupported Claims: Response contains definitive claims without sufficient evidence.",
+        );
         break;
       }
     }
@@ -371,23 +460,96 @@ export class GovernanceService {
     confidence: number,
     userPrompt: string,
     modelUsed: string = "gemini-2.5-flash",
-    tenantId: number | null = null
+    tenantId: number | null = null,
   ): GovernanceDecision {
     const confidenceLevel = this.evaluateConfidence(confidence);
-    const evidenceSufficient = this.isEvidenceSufficient(confidence, sources.length);
-    const hallucinationDetected = this.detectHallucination(rawResponse, sources, confidence);
+    const evidenceSufficient = this.isEvidenceSufficient(
+      confidence,
+      sources.length,
+    );
+
+    // Integrate with Truth Engine
+    const { truthEngine } = require("./truth_engine.js");
+    const { aiPolicyRegistry } = require("./ai_policy_registry.js");
+
+    // Construct a mock evidence bundle to run checks
+    const mockEvidence: any = {
+      anomaly_id: 1,
+      tenant_id: tenantId || 1,
+      detection_timestamp: Date.now(),
+      detection_method: "hybrid",
+      hybrid_score: confidence,
+      severity: confidence > 0.7 ? "HIGH" : "MEDIUM",
+      confidence: confidence,
+      risk_score: confidence,
+      matched_rules: [
+        {
+          rule_id: "R-001",
+          rule_name: "Mock Rule",
+          matched: true,
+          details: null,
+        },
+      ],
+      threat_fusion: null,
+      threat_intelligence: [],
+      asset_context: null,
+      behavior_context: null,
+      mitre_mappings: [],
+      explainability_summary: {
+        overallScore: confidence,
+        severity: "MEDIUM",
+        topContributingFeatures: [],
+        moduleBreakdown: [],
+        evidenceText: "Mock evidence",
+        recommendation: "None",
+      },
+    };
+
+    const truthResult = truthEngine.validate(rawResponse, mockEvidence);
+    const hallucinationDetected =
+      this.detectHallucination(rawResponse, sources, confidence) ||
+      truthResult.safe_fallback_triggered;
+
     const citationValidation = this.validateCitations(rawResponse, sources);
-    const highImpactAction = this.detectHighImpactAction(userPrompt, rawResponse);
-    const policyViolations = this.checkPolicyViolations(userPrompt, rawResponse);
+    const highImpactAction = this.detectHighImpactAction(
+      userPrompt,
+      rawResponse,
+    );
+
+    // Integrate with Policy Registry
+    const policyEval = aiPolicyRegistry.evaluate(
+      {
+        request_type: "anomaly_explanation",
+        truth_score: truthResult.truth_score,
+      },
+      tenantId || 1,
+    );
+
+    const policyViolations = this.checkPolicyViolations(
+      userPrompt,
+      rawResponse,
+    );
+    for (const v of policyEval.violations) {
+      policyViolations.push(v.message);
+    }
+
     const { wasMasked } = this.maskPII(rawResponse);
 
     // AI Security Boundary Enforcement
-    const boundaryCheck = this.enforceAIBoundaries(rawResponse, userPrompt, tenantId);
+    const boundaryCheck = this.enforceAIBoundaries(
+      rawResponse,
+      userPrompt,
+      tenantId,
+    );
     if (boundaryCheck.violations.length > 0) {
       policyViolations.push(...boundaryCheck.details);
     }
 
-    const safeFallbackTriggered = !evidenceSufficient || hallucinationDetected || boundaryCheck.blocked;
+    const safeFallbackTriggered =
+      !evidenceSufficient ||
+      hallucinationDetected ||
+      boundaryCheck.blocked ||
+      !policyEval.allowed;
 
     // Build explanation
     const explanationParts: string[] = [
@@ -397,12 +559,17 @@ export class GovernanceService {
       `Hallucination check: ${hallucinationDetected ? "FLAGGED" : "PASS"}`,
       `Citation validation: ${citationValidation.valid ? "PASS" : "WARN"} (${citationValidation.citedCount}/${sources.length} cited)`,
       `Model: ${modelUsed} (Google Gemini 2.5 Flash)`,
+      `Truth Score: ${(truthResult.truth_score * 100).toFixed(0)}% [Badge: ${truthResult.badge}]`,
     ];
     if (highImpactAction) {
-      explanationParts.push(`⚠ HIGH-IMPACT ACTION: ${highImpactAction} requires analyst approval`);
+      explanationParts.push(
+        `⚠ HIGH-IMPACT ACTION: ${highImpactAction} requires analyst approval`,
+      );
     }
     if (policyViolations.length > 0) {
-      explanationParts.push(`Policy violations: ${policyViolations.join(", ")}`);
+      explanationParts.push(
+        `Policy violations: ${policyViolations.join(", ")}`,
+      );
     }
 
     return {
