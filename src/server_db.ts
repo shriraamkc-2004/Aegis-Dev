@@ -351,6 +351,97 @@ export async function initServerDb(): Promise<void> {
         `,
           (err) => {
             if (err) return reject(err);
+          },
+        );
+
+        // 13. AI Governance Audit Logs Table
+        coreDbConn.run(
+          `
+          CREATE TABLE IF NOT EXISTS ai_audit_logs (
+            id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+            audit_id                  TEXT NOT NULL UNIQUE,
+            prompt_id                 TEXT NOT NULL,
+            request_id                TEXT NOT NULL,
+            session_id                TEXT,
+            evidence_version          TEXT NOT NULL,
+            model_version             TEXT NOT NULL,
+            prompt_template_version   INTEGER NOT NULL DEFAULT 1,
+            response_schema_version   TEXT NOT NULL DEFAULT '2.0.0',
+            user_id                   INTEGER,
+            tenant_id                 INTEGER NOT NULL,
+            user_role                 TEXT NOT NULL DEFAULT 'unknown',
+            ip_address                TEXT NOT NULL,
+            request_timestamp         INTEGER NOT NULL,
+            response_timestamp        INTEGER NOT NULL,
+            latency_ms                INTEGER NOT NULL DEFAULT 0,
+            prompt_hash               TEXT NOT NULL,
+            response_hash             TEXT NOT NULL,
+            evidence_bundle_hash      TEXT NOT NULL,
+            guardrail_allowed         INTEGER NOT NULL DEFAULT 1,
+            guardrail_violations      TEXT NOT NULL DEFAULT '[]',
+            evidence_valid            INTEGER NOT NULL DEFAULT 1,
+            evidence_missing_fields   TEXT NOT NULL DEFAULT '[]',
+            confidence_level          TEXT NOT NULL DEFAULT 'LOW',
+            confidence_score          REAL NOT NULL DEFAULT 0,
+            rag_documents_retrieved   INTEGER NOT NULL DEFAULT 0,
+            truth_score               REAL NOT NULL DEFAULT 0,
+            hallucinations_detected   TEXT NOT NULL DEFAULT '[]',
+            outcome                   TEXT NOT NULL,
+            policy_violations         TEXT NOT NULL DEFAULT '[]',
+            safe_fallback_used        INTEGER NOT NULL DEFAULT 0,
+            tokens_input              INTEGER NOT NULL DEFAULT 0,
+            tokens_output             INTEGER NOT NULL DEFAULT 0,
+            created_at                INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+          )
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
+
+        // 14. AI Decision Ledger Table
+        coreDbConn.run(
+          `
+          CREATE TABLE IF NOT EXISTS ai_decision_ledger (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            ledger_id           TEXT NOT NULL UNIQUE,
+            audit_id            TEXT NOT NULL,
+            tenant_id           INTEGER NOT NULL,
+            anomaly_id          INTEGER,
+            decision_type       TEXT NOT NULL,
+            decision_timestamp  INTEGER NOT NULL,
+            evidence_hash       TEXT NOT NULL,
+            truth_score         REAL NOT NULL DEFAULT 0,
+            confidence_level    TEXT NOT NULL DEFAULT 'LOW',
+            outcome             TEXT NOT NULL,
+            model_version       TEXT NOT NULL,
+            analyst_feedback    TEXT,
+            feedback_timestamp  INTEGER,
+            feedback_notes      TEXT,
+            created_at          INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
+          )
+        `,
+          (err) => {
+            if (err) return reject(err);
+          },
+        );
+
+        // 15. AI Response Feedback Table
+        coreDbConn.run(
+          `
+          CREATE TABLE IF NOT EXISTS ai_response_feedback (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            audit_id          TEXT NOT NULL,
+            tenant_id         INTEGER NOT NULL,
+            rating            TEXT NOT NULL,
+            corrected_text    TEXT,
+            notes             TEXT,
+            analyst_user_id   INTEGER NOT NULL,
+            timestamp         INTEGER NOT NULL
+          )
+        `,
+          (err) => {
+            if (err) return reject(err);
             console.log(`Core metadata database schemas configured.`);
             resolve();
           },
@@ -481,97 +572,6 @@ export async function initServerDb(): Promise<void> {
             incident_id INTEGER DEFAULT NULL,
             organization_id INTEGER DEFAULT 1,
             created_at REAL DEFAULT (strftime('%s','now'))
-          )
-        `,
-          (err) => {
-            if (err) return reject(err);
-          },
-        );
-
-        // 9. AI Governance Audit Logs Table
-        telemetryDbConn.run(
-          `
-          CREATE TABLE IF NOT EXISTS ai_audit_logs (
-            id                        INTEGER PRIMARY KEY AUTOINCREMENT,
-            audit_id                  TEXT NOT NULL UNIQUE,
-            prompt_id                 TEXT NOT NULL,
-            request_id                TEXT NOT NULL,
-            session_id                TEXT,
-            evidence_version          TEXT NOT NULL,
-            model_version             TEXT NOT NULL,
-            prompt_template_version   INTEGER NOT NULL DEFAULT 1,
-            response_schema_version   TEXT NOT NULL DEFAULT '2.0.0',
-            user_id                   INTEGER,
-            tenant_id                 INTEGER NOT NULL,
-            user_role                 TEXT NOT NULL DEFAULT 'unknown',
-            ip_address                TEXT NOT NULL,
-            request_timestamp         INTEGER NOT NULL,
-            response_timestamp        INTEGER NOT NULL,
-            latency_ms                INTEGER NOT NULL DEFAULT 0,
-            prompt_hash               TEXT NOT NULL,
-            response_hash             TEXT NOT NULL,
-            evidence_bundle_hash      TEXT NOT NULL,
-            guardrail_allowed         INTEGER NOT NULL DEFAULT 1,
-            guardrail_violations      TEXT NOT NULL DEFAULT '[]',
-            evidence_valid            INTEGER NOT NULL DEFAULT 1,
-            evidence_missing_fields   TEXT NOT NULL DEFAULT '[]',
-            confidence_level          TEXT NOT NULL DEFAULT 'LOW',
-            confidence_score          REAL NOT NULL DEFAULT 0,
-            rag_documents_retrieved   INTEGER NOT NULL DEFAULT 0,
-            truth_score               REAL NOT NULL DEFAULT 0,
-            hallucinations_detected   TEXT NOT NULL DEFAULT '[]',
-            outcome                   TEXT NOT NULL,
-            policy_violations         TEXT NOT NULL DEFAULT '[]',
-            safe_fallback_used        INTEGER NOT NULL DEFAULT 0,
-            tokens_input              INTEGER NOT NULL DEFAULT 0,
-            tokens_output             INTEGER NOT NULL DEFAULT 0,
-            created_at                INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
-          )
-        `,
-          (err) => {
-            if (err) return reject(err);
-          },
-        );
-
-        // 10. AI Decision Ledger Table
-        telemetryDbConn.run(
-          `
-          CREATE TABLE IF NOT EXISTS ai_decision_ledger (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-            ledger_id           TEXT NOT NULL UNIQUE,
-            audit_id            TEXT NOT NULL,
-            tenant_id           INTEGER NOT NULL,
-            anomaly_id          INTEGER,
-            decision_type       TEXT NOT NULL,
-            decision_timestamp  INTEGER NOT NULL,
-            evidence_hash       TEXT NOT NULL,
-            truth_score         REAL NOT NULL DEFAULT 0,
-            confidence_level    TEXT NOT NULL DEFAULT 'LOW',
-            outcome             TEXT NOT NULL,
-            model_version       TEXT NOT NULL,
-            analyst_feedback    TEXT,
-            feedback_timestamp  INTEGER,
-            feedback_notes      TEXT,
-            created_at          INTEGER NOT NULL DEFAULT (unixepoch('now') * 1000)
-          )
-        `,
-          (err) => {
-            if (err) return reject(err);
-          },
-        );
-
-        // 11. AI Response Feedback Table
-        telemetryDbConn.run(
-          `
-          CREATE TABLE IF NOT EXISTS ai_response_feedback (
-            id                INTEGER PRIMARY KEY AUTOINCREMENT,
-            audit_id          TEXT NOT NULL,
-            tenant_id         INTEGER NOT NULL,
-            rating            TEXT NOT NULL,
-            corrected_text    TEXT,
-            notes             TEXT,
-            analyst_user_id   INTEGER NOT NULL,
-            timestamp         INTEGER NOT NULL
           )
         `,
           (err) => {
