@@ -10,6 +10,7 @@ import { ModuleDetectionResult } from "./detection_orchestrator.js";
 
 export interface ExplanationSummary {
   anomalyId?: number;
+  anomaly_id?: number; // compat with copilot validators
   overallScore: number;
   severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   topContributingFeatures: string[];
