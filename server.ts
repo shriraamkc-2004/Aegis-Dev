@@ -3103,7 +3103,14 @@ app.post("/api/demo/replay", authenticateToken, async (req, res) => {
       });
       return;
     }
-    const filePath = path.join(sampleDir, sampleFile);
+    const resolvedSampleDir = path.resolve(sampleDir);
+    const filePath = path.resolve(sampleDir, sampleFile);
+    if (!filePath.startsWith(resolvedSampleDir)) {
+      res
+        .status(403)
+        .json({ error: "Access Denied: Path traversal detected." });
+      return;
+    }
     if (!fs.existsSync(filePath)) {
       res.status(404).json({ error: `Sample file not found: ${sampleFile}` });
       return;
@@ -3372,18 +3379,44 @@ function startIngestionLoop(connectorId: number, dbPath: string, mapping: any) {
               reject(err);
               return;
             }
-            const whereClause = fId
-              ? ` WHERE "${fId}" > ${lastIngestedRowId}`
-              : "";
-            const orderCol = fId || fTs || "rowid";
-            extDb.all(
-              `SELECT * FROM "${sourceTable}"${whereClause} ORDER BY "${orderCol}" ASC LIMIT 200`,
-              (e, r) => {
-                extDb.close();
-                if (e) reject(e);
-                else resolve(r || []);
-              },
+            // Validate SQL identifiers to prevent injection
+            if (sourceTable && !/^[a-zA-Z0-9_$]+$/.test(sourceTable)) {
+              reject(
+                new Error("Invalid table name: contains prohibited characters"),
+              );
+              return;
+            }
+            if (fId && !/^[a-zA-Z0-9_$]+$/.test(fId)) {
+              reject(
+                new Error(
+                  "Invalid field_event_id name: contains prohibited characters",
+                ),
+              );
+              return;
+            }
+            if (fTs && !/^[a-zA-Z0-9_$]+$/.test(fTs)) {
+              reject(
+                new Error(
+                  "Invalid field_timestamp name: contains prohibited characters",
+                ),
+              );
+              return;
+            }
+
+            const safeOrderCol = (fId || fTs || "rowid").replace(
+              /[^a-zA-Z0-9_$]/g,
+              "",
             );
+            const query = fId
+              ? `SELECT * FROM "${sourceTable}" WHERE "${fId}" > ? ORDER BY "${safeOrderCol}" ASC LIMIT 200`
+              : `SELECT * FROM "${sourceTable}" ORDER BY "${safeOrderCol}" ASC LIMIT 200`;
+            const params = fId ? [lastIngestedRowId] : [];
+
+            extDb.all(query, params, (e, r) => {
+              extDb.close();
+              if (e) reject(e);
+              else resolve(r || []);
+            });
           },
         );
       });
@@ -3773,7 +3806,11 @@ function startProducerLoop() {
       );
     }
   };
-  const safeInterval = Math.max(50, engineSettings.EVENT_INTERVAL);
+  let safeInterval = 1000;
+  const rawInterval = Number(engineSettings.EVENT_INTERVAL);
+  if (!isNaN(rawInterval) && isFinite(rawInterval) && rawInterval >= 50) {
+    safeInterval = rawInterval;
+  }
   activeProducerInterval = setInterval(triggerTick, safeInterval);
 }
 

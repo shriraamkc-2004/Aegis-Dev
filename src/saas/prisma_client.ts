@@ -32,7 +32,6 @@ export function getPrismaClient(): PrismaClient {
     console.log(
       "PRISMA CLIENT: Created adapter:",
       adapter ? typeof adapter : "undefined",
-      adapter,
     );
     prismaInstance = new PrismaClient({
       adapter,

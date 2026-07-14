@@ -101,15 +101,19 @@ def load_documents_from_directory(
     Recursively load text documents from a directory.
     Supports: .md, .txt, .json, .pdf, .rst, .docx
     """
-    docs: List[Document] = []
+    import re
+    if not re.match(r"^[a-zA-Z0-9_\-\/]+$", directory):
+        logger.warning("Invalid directory input pattern: '%s'", directory)
+        return docs
+
     try:
         base_path = Path(KNOWLEDGE_BASE_DIR).resolve()
         # Clean directory path to prevent any path traversal attempts
         clean_dir = directory.strip("/").strip("\\").replace("..", "")
         dir_path = (base_path / clean_dir).resolve()
-        try:
-            dir_path.relative_to(base_path)
-        except ValueError:
+        
+        # Explicit startswith check to prevent any bypass
+        if not str(dir_path).startswith(str(base_path)):
             logger.warning("Path traversal attempt blocked: '%s' is not relative to base '%s'", directory, base_path)
             return docs
     except Exception as exc:
@@ -121,9 +125,15 @@ def load_documents_from_directory(
         return docs
 
     for file_path in dir_path.rglob("*"):
-        if not file_path.is_file():
+        try:
+            resolved_file = file_path.resolve()
+            if not str(resolved_file).startswith(str(base_path)):
+                continue
+        except Exception:
             continue
-        if not file_path.suffix.lower().endswith(extensions):
+        if not resolved_file.is_file():
+            continue
+        if not resolved_file.suffix.lower().endswith(extensions):
             continue
 
         try:

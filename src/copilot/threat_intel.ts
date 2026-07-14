@@ -433,7 +433,7 @@ export class ThreatIntelService {
     // Strict input validation to prevent SSRF and parameter pollution
     const trimmed = value.trim();
 
-    let url = "";
+    let apiPath = "";
     if (indicatorType === "ip") {
       const ipv4Regex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
       const ipv6Regex = /^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/;
@@ -456,7 +456,7 @@ export class ThreatIntelService {
       ) {
         return null;
       }
-      url = `https://www.virustotal.com/api/v3/ip_addresses/${trimmed}`;
+      apiPath = `/api/v3/ip_addresses/${encodeURIComponent(trimmed)}`;
     } else if (indicatorType === "domain") {
       const domainRegex = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
       const isValid =
@@ -465,28 +465,20 @@ export class ThreatIntelService {
         !trimmed.toLowerCase().endsWith(".local") &&
         !trimmed.toLowerCase().endsWith(".internal");
       if (!isValid) return null;
-      url = `https://www.virustotal.com/api/v3/domains/${trimmed}`;
+      apiPath = `/api/v3/domains/${encodeURIComponent(trimmed)}`;
     } else if (indicatorType === "hash") {
       const hashRegex = /^[a-fA-F0-9]{32,64}$/;
       const isValid =
         hashRegex.test(trimmed) && [32, 40, 64].includes(trimmed.length);
       if (!isValid) return null;
-      url = `https://www.virustotal.com/api/v3/files/${trimmed}`;
+      apiPath = `/api/v3/files/${encodeURIComponent(trimmed)}`;
     } else {
-      return null;
-    }
-
-    const parsedUrl = new URL(url);
-    if (
-      parsedUrl.protocol !== "https:" ||
-      parsedUrl.hostname !== "www.virustotal.com"
-    ) {
       return null;
     }
 
     // Use a hardcoded origin to prevent SSRF
     const origin = "https://www.virustotal.com";
-    const response = await fetch(`${origin}${parsedUrl.pathname}`, {
+    const response = await fetch(`${origin}${apiPath}`, {
       headers: { "x-apikey": apiKey },
     });
 
