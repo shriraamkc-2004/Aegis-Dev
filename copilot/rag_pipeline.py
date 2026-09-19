@@ -93,79 +93,67 @@ class GeminiEmbedder:
 # ─── Document Loaders ───────────────────────────────────────────────────────────
 
 
+ALLOWED_INGEST_DIRECTORIES: Dict[str, str] = {
+    "knowledge_base": KNOWLEDGE_BASE_DIR,
+    "alert_rules": ALERT_RULES_DIR,
+    "incidents": INCIDENTS_DIR,
+    "logs": LOGS_DIR,
+}
+
+
 def load_documents_from_directory(
     directory: str,
     extensions: Tuple[str, ...] = (".md", ".txt", ".json", ".pdf", ".rst", ".docx"),
 ) -> List[Document]:
     """
-    Recursively load text documents from a directory.
+    Recursively load text documents from an allowed server-side directory.
     Supports: .md, .txt, .json, .pdf, .rst, .docx
     """
     docs: List[Document] = []
-    import re
-    if not re.match(r"^[a-zA-Z0-9_\-\/]+$", directory):
-        logger.warning("Invalid directory input pattern: '%s'", directory)
+
+    # Whitelist directory against known safe system directories to prevent path injection
+    clean_key = os.path.basename(os.path.normpath(directory)).strip().lower()
+    if clean_key in ALLOWED_INGEST_DIRECTORIES:
+        resolved_dir = Path(ALLOWED_INGEST_DIRECTORIES[clean_key]).resolve()
+    elif directory in ALLOWED_INGEST_DIRECTORIES.values():
+        resolved_dir = Path(directory).resolve()
+    else:
+        logger.warning("Directory '%s' is not an allowed ingestion directory", directory)
         return docs
 
-    # Strictly prevent parent directory traversal and absolute paths
-    norm_dir = os.path.normpath(directory)
-    if os.path.isabs(norm_dir) or ".." in norm_dir.split(os.sep):
-        logger.warning("Path traversal attempt blocked: '%s'", directory)
+    if not resolved_dir.exists() or not resolved_dir.is_dir():
+        logger.warning("Knowledge directory does not exist: %s", resolved_dir)
         return docs
 
-    try:
-        base_path = Path(KNOWLEDGE_BASE_DIR).resolve()
-        target_path = (base_path / norm_dir).resolve()
-        
-        # Verify target is strictly within base_path using commonpath
-        if os.path.commonpath([str(base_path), str(target_path)]) != str(base_path):
-            logger.warning("Path traversal attempt blocked: '%s' is not relative to base '%s'", directory, base_path)
-            return docs
-            
-        dir_path = target_path
-    except Exception as exc:
-        logger.error("Error resolving ingestion directory: %s", exc)
-        return docs
-
-    if not dir_path.exists() or not dir_path.is_dir():
-        logger.warning("Knowledge directory does not exist: %s", directory)
-        return docs
-
-    for file_path in dir_path.rglob("*"):
-        try:
-            resolved_file = file_path.resolve()
-            if os.path.commonpath([str(base_path), str(resolved_file)]) != str(base_path):
-                continue
-        except Exception:
+    for file_path in resolved_dir.rglob("*"):
+        if not file_path.is_file():
             continue
-        if not resolved_file.is_file():
-            continue
-        if not resolved_file.suffix.lower().endswith(extensions):
+        if not file_path.suffix.lower().endswith(extensions):
             continue
 
         try:
-            if resolved_file.suffix.lower() == ".pdf":
-                text = _load_pdf(resolved_file)
-            elif resolved_file.suffix.lower() == ".docx":
-                text = _load_docx(resolved_file)
-            elif resolved_file.suffix.lower() == ".json":
-                text = resolved_file.read_text(encoding="utf-8", errors="replace")
+            if file_path.suffix.lower() == ".pdf":
+                text = _load_pdf(file_path)
+            elif file_path.suffix.lower() == ".docx":
+                text = _load_docx(file_path)
+            elif file_path.suffix.lower() == ".json":
+                text = file_path.read_text(encoding="utf-8", errors="replace")
             else:
-                text = resolved_file.read_text(encoding="utf-8", errors="replace")
+                text = file_path.read_text(encoding="utf-8", errors="replace")
 
             if text.strip():
                 docs.append(
                     Document(
                         page_content=text,
                         metadata={
-                            "source": str(resolved_file),
-                            "filename": resolved_file.name,
-                            "directory": str(resolved_file.parent),
+                            "source": str(file_path),
+                            "filename": file_path.name,
+                            "directory": str(file_path.parent),
                         },
                     )
                 )
         except Exception as exc:
-            logger.warning("Failed loading %s: %s", resolved_file, exc)
+            logger.warning("Failed loading %s: %s", file_path, exc)
 
     logger.info("Loaded %d documents from '%s'.", len(docs), directory)
     return docs

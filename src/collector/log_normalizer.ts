@@ -218,9 +218,37 @@ export function parseCef(raw: string): NormalizedEvent[] {
 
 // RFC 5424: <PRI>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID STRUCTURED-DATA MSG
 const RFC5424 = /^<(\d+)>(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)/;
-// RFC 3164: <PRI>TIMESTAMP HOSTNAME TAG: MSG
-const RFC3164 =
-  /^<([0-9]{1,3})>([A-Za-z]{3}\s+[0-9]{1,2}\s+[0-9]{2}:[0-9]{2}:[0-9]{2})\s+([^\s]+)\s+([^:\s]+):\s*(.*)$/;
+function parseRfc3164(line: string): {
+  priStr: string;
+  timestamp: string;
+  hostname: string;
+  tag: string;
+  msg: string;
+} | null {
+  if (!line.startsWith("<")) return null;
+  const closeIdx = line.indexOf(">");
+  if (closeIdx <= 1 || closeIdx > 5) return null;
+  const priStr = line.slice(1, closeIdx);
+  if (!/^\d+$/.test(priStr)) return null;
+
+  let rem = line.slice(closeIdx + 1).trimStart();
+  if (rem.length < 16) return null;
+  const timestamp = rem.slice(0, 15);
+  if (!/^[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}$/.test(timestamp)) return null;
+
+  rem = rem.slice(15).trimStart();
+  const hostEnd = rem.indexOf(" ");
+  if (hostEnd <= 0) return null;
+  const hostname = rem.slice(0, hostEnd);
+
+  rem = rem.slice(hostEnd + 1).trimStart();
+  const colonIdx = rem.indexOf(":");
+  if (colonIdx <= 0) return null;
+  const tag = rem.slice(0, colonIdx);
+  const msg = rem.slice(colonIdx + 1).trimStart();
+
+  return { priStr, timestamp, hostname, tag, msg };
+}
 
 export function parseSyslog(raw: string): NormalizedEvent[] {
   const results: NormalizedEvent[] = [];
@@ -245,20 +273,23 @@ export function parseSyslog(raw: string): NormalizedEvent[] {
         raw_data: { hostname, appName, pri, msg },
         _parser: "syslog-rfc5424",
       });
-    } else if ((m = trimmed.match(RFC3164))) {
-      const [, priStr, timestamp, hostname, tag, msg] = m;
-      const pri = parseInt(priStr, 10);
-      const syslogSeverity = pri % 8;
-      results.push({
-        timestamp: safeTimestamp(`${new Date().getFullYear()} ${timestamp}`),
-        source: hostname,
-        severity: SYSLOG_SEVERITY_MAP[syslogSeverity] ?? "info",
-        category: inferCategory(tag, msg),
-        event_type: tag.trim(),
-        message: msg,
-        raw_data: { hostname, tag, pri, msg },
-        _parser: "syslog-rfc3164",
-      });
+    } else {
+      const parsed3164 = parseRfc3164(trimmed);
+      if (parsed3164) {
+        const { priStr, timestamp, hostname, tag, msg } = parsed3164;
+        const pri = parseInt(priStr, 10);
+        const syslogSeverity = pri % 8;
+        results.push({
+          timestamp: safeTimestamp(`${new Date().getFullYear()} ${timestamp}`),
+          source: hostname,
+          severity: SYSLOG_SEVERITY_MAP[syslogSeverity] ?? "info",
+          category: inferCategory(tag, msg),
+          event_type: tag.trim(),
+          message: msg,
+          raw_data: { hostname, tag, pri, msg },
+          _parser: "syslog-rfc3164",
+        });
+      }
     }
   }
 

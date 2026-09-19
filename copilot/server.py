@@ -213,7 +213,7 @@ async def ingest_text(req: IngestRequest):
 
 @app.post("/api/copilot/ingest/directory")
 async def ingest_directory(
-    directory: str = Form(...),
+    directory: str = Form("knowledge_base"),
     collection: str = Form("knowledge_base"),
     tag: str = Form(""),
     tenant_id: int = Form(1),
@@ -221,12 +221,17 @@ async def ingest_directory(
     """Ingest all documents from a server-side directory (tenant-aware)."""
     if not _rag_pipeline:
         raise HTTPException(status_code=503, detail="RAG pipeline not initialized")
-    # Sanitize input directory parameter to prevent path traversal attempts
-    if ".." in directory or "/" in directory or "\\" in directory or ":" in directory or "%" in directory:
-        raise HTTPException(status_code=400, detail="Invalid directory name format. Path traversal characters not allowed.")
+    
+    clean_dir = os.path.basename(directory).strip().lower()
+    allowed_dirs = {"knowledge_base", "alert_rules", "incidents", "logs"}
+    if clean_dir not in allowed_dirs:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid directory '{clean_dir}'. Allowed directories: {', '.join(sorted(allowed_dirs))}",
+        )
 
-    count = _rag_pipeline.ingest_directory(directory, collection, tag, tenant_id)
-    return {"chunks_indexed": count, "collection": collection, "directory": directory}
+    count = _rag_pipeline.ingest_directory(clean_dir, collection, tag, tenant_id)
+    return {"chunks_indexed": count, "collection": collection, "directory": clean_dir}
 
 
 @app.post("/api/copilot/ingest/upload")
