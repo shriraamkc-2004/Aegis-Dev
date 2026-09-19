@@ -187,13 +187,16 @@ export function parseCef(raw: string): NormalizedEvent[] {
     const [, , vendor, product, , sigId, name, severityStr, extStr] = match;
     const severity = CEF_SEVERITY_MAP[parseInt(severityStr, 10)] ?? "info";
 
-    // Parse extension key=value pairs
+    // Parse extension key=value pairs safely without polynomial ReDoS
     const ext: Record<string, string> = {};
-    const extPairs =
-      extStr.match(/(\w+)=((?:[^=\\]|\\.)*?)(?=\s+\w+=|$)/g) || [];
-    for (const pair of extPairs) {
-      const eqIdx = pair.indexOf("=");
-      if (eqIdx > 0) ext[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
+    const extTokens = extStr.split(/\s(?=[A-Za-z0-9_]+=)/);
+    for (const token of extTokens) {
+      const eqIdx = token.indexOf("=");
+      if (eqIdx > 0) {
+        const k = token.slice(0, eqIdx).trim();
+        const v = token.slice(eqIdx + 1).trim();
+        if (k) ext[k] = v;
+      }
     }
 
     results.push({
@@ -217,7 +220,7 @@ export function parseCef(raw: string): NormalizedEvent[] {
 const RFC5424 = /^<(\d+)>(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)/;
 // RFC 3164: <PRI>TIMESTAMP HOSTNAME TAG: MSG
 const RFC3164 =
-  /^<(\d+)>(\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^:]+):\s*(.*)/;
+  /^<([0-9]{1,3})>([A-Za-z]{3}\s+[0-9]{1,2}\s+[0-9]{2}:[0-9]{2}:[0-9]{2})\s+([^\s]+)\s+([^:\s]+):\s*(.*)$/;
 
 export function parseSyslog(raw: string): NormalizedEvent[] {
   const results: NormalizedEvent[] = [];
@@ -272,10 +275,17 @@ export function parseKeyValue(raw: string): NormalizedEvent[] {
     if (!trimmed) continue;
 
     const obj: Record<string, string> = {};
-    const pairs = trimmed.match(/(\w+)=("[^"]*"|\S+)/g) || [];
+    const pairs = trimmed.split(/\s(?=[A-Za-z0-9_]+=)/);
     for (const pair of pairs) {
       const eqIdx = pair.indexOf("=");
-      obj[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1).replace(/^"|"$/g, "");
+      if (eqIdx > 0) {
+        const key = pair.slice(0, eqIdx).trim();
+        let val = pair.slice(eqIdx + 1).trim();
+        if (val.startsWith('"') && val.endsWith('"') && val.length >= 2) {
+          val = val.slice(1, -1);
+        }
+        if (key) obj[key] = val;
+      }
     }
 
     if (Object.keys(obj).length === 0) continue;

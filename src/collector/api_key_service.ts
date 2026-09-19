@@ -48,7 +48,7 @@ function generateRawKey(): string {
 }
 
 function hashKey(rawKey: string): string {
-  return crypto.createHash("sha256").update(rawKey).digest("hex");
+  return crypto.scryptSync(rawKey, "aegis_api_key_salt_v1", 64).toString("hex");
 }
 
 function extractPrefix(rawKey: string): string {

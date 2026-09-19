@@ -3472,7 +3472,16 @@ app.post("/api/demo/replay", authenticateToken, async (req, res) => {
     });
 
     // Replay events asynchronously
-    const baseInterval = 200 / speed_multiplier;
+    const rawMultiplier = Number(speed_multiplier);
+    const validMultiplier =
+      !isNaN(rawMultiplier) && isFinite(rawMultiplier) && rawMultiplier > 0
+        ? rawMultiplier
+        : 1;
+    const clampedMultiplier = Math.max(0.1, Math.min(20, validMultiplier));
+    const baseInterval = Math.max(
+      10,
+      Math.min(5000, Math.floor(200 / clampedMultiplier)),
+    );
     let idx = 0;
     const replayNext = async () => {
       if (idx >= events.length || !demoReplayActive) {
@@ -4145,10 +4154,16 @@ function startProducerLoop() {
   };
   let safeInterval = 1000;
   const rawInterval = Number(engineSettings.EVENT_INTERVAL);
-  if (!isNaN(rawInterval) && isFinite(rawInterval) && rawInterval >= 50) {
-    safeInterval = rawInterval;
+  if (
+    !isNaN(rawInterval) &&
+    isFinite(rawInterval) &&
+    rawInterval >= 50 &&
+    rawInterval <= 60000
+  ) {
+    safeInterval = Math.floor(rawInterval);
   }
-  activeProducerInterval = setInterval(triggerTick, safeInterval);
+  const boundedInterval = Math.max(50, Math.min(60000, safeInterval));
+  activeProducerInterval = setInterval(triggerTick, boundedInterval);
 }
 
 function restartProducerLoop() {

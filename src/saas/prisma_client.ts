@@ -25,8 +25,7 @@ function buildDatabaseUrl(): string {
 export function getPrismaClient(): PrismaClient {
   if (!prismaInstance) {
     const connStr = buildDatabaseUrl();
-    const maskedConnStr = connStr.replace(/:([^:@]+)@/, ":[REDACTED]@");
-    console.log("PRISMA CLIENT: Connecting to", maskedConnStr);
+    console.log("PRISMA CLIENT: Initializing database connection pool");
     const pool = new pg.Pool({
       connectionString: connStr,
       connectionTimeoutMillis: 2000, // Fail fast if PG is offline

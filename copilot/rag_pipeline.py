@@ -101,33 +101,40 @@ def load_documents_from_directory(
     Recursively load text documents from a directory.
     Supports: .md, .txt, .json, .pdf, .rst, .docx
     """
+    docs: List[Document] = []
     import re
     if not re.match(r"^[a-zA-Z0-9_\-\/]+$", directory):
         logger.warning("Invalid directory input pattern: '%s'", directory)
         return docs
 
+    # Strictly prevent parent directory traversal and absolute paths
+    norm_dir = os.path.normpath(directory)
+    if os.path.isabs(norm_dir) or ".." in norm_dir.split(os.sep):
+        logger.warning("Path traversal attempt blocked: '%s'", directory)
+        return docs
+
     try:
         base_path = Path(KNOWLEDGE_BASE_DIR).resolve()
-        # Clean directory path to prevent any path traversal attempts
-        clean_dir = directory.strip("/").strip("\\").replace("..", "")
-        dir_path = (base_path / clean_dir).resolve()
+        target_path = (base_path / norm_dir).resolve()
         
-        # Explicit startswith check to prevent any bypass
-        if not str(dir_path).startswith(str(base_path)):
+        # Verify target is strictly within base_path using commonpath
+        if os.path.commonpath([str(base_path), str(target_path)]) != str(base_path):
             logger.warning("Path traversal attempt blocked: '%s' is not relative to base '%s'", directory, base_path)
             return docs
+            
+        dir_path = target_path
     except Exception as exc:
         logger.error("Error resolving ingestion directory: %s", exc)
         return docs
 
-    if not dir_path.exists():
+    if not dir_path.exists() or not dir_path.is_dir():
         logger.warning("Knowledge directory does not exist: %s", directory)
         return docs
 
     for file_path in dir_path.rglob("*"):
         try:
             resolved_file = file_path.resolve()
-            if not str(resolved_file).startswith(str(base_path)):
+            if os.path.commonpath([str(base_path), str(resolved_file)]) != str(base_path):
                 continue
         except Exception:
             continue
@@ -137,28 +144,28 @@ def load_documents_from_directory(
             continue
 
         try:
-            if file_path.suffix.lower() == ".pdf":
-                text = _load_pdf(file_path)
-            elif file_path.suffix.lower() == ".docx":
-                text = _load_docx(file_path)
-            elif file_path.suffix.lower() == ".json":
-                text = file_path.read_text(encoding="utf-8", errors="replace")
+            if resolved_file.suffix.lower() == ".pdf":
+                text = _load_pdf(resolved_file)
+            elif resolved_file.suffix.lower() == ".docx":
+                text = _load_docx(resolved_file)
+            elif resolved_file.suffix.lower() == ".json":
+                text = resolved_file.read_text(encoding="utf-8", errors="replace")
             else:
-                text = file_path.read_text(encoding="utf-8", errors="replace")
+                text = resolved_file.read_text(encoding="utf-8", errors="replace")
 
             if text.strip():
                 docs.append(
                     Document(
                         page_content=text,
                         metadata={
-                            "source": str(file_path),
-                            "filename": file_path.name,
-                            "directory": str(file_path.parent),
+                            "source": str(resolved_file),
+                            "filename": resolved_file.name,
+                            "directory": str(resolved_file.parent),
                         },
                     )
                 )
         except Exception as exc:
-            logger.warning("Failed loading %s: %s", file_path, exc)
+            logger.warning("Failed loading %s: %s", resolved_file, exc)
 
     logger.info("Loaded %d documents from '%s'.", len(docs), directory)
     return docs
