@@ -6,8 +6,10 @@ Runs as a separate service on port 8100 alongside the main Express server.
 
 from __future__ import annotations
 
+import os
 import logging
 import time
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header
