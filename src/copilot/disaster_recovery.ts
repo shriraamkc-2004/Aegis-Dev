@@ -15,8 +15,8 @@ import path from "path";
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
 export interface RecoveryObjectives {
-  rpo_seconds: number;      // 3600 = 1 hour
-  rto_seconds: number;      // 14400 = 4 hours
+  rpo_seconds: number; // 3600 = 1 hour
+  rto_seconds: number; // 14400 = 4 hours
   rpo_description: string;
   rto_description: string;
 }
@@ -67,8 +67,8 @@ const RETENTION_DAYS_QDRANT = 14;
 const RETENTION_DAYS_MINIO = 30;
 const RETENTION_DAYS_SQLITE = 7;
 
-const RPO_SECONDS = 3600;   // 1 hour
-const RTO_SECONDS = 14400;  // 4 hours
+const RPO_SECONDS = 3600; // 1 hour
+const RTO_SECONDS = 14400; // 4 hours
 
 export const RECOVERY_OBJECTIVES: RecoveryObjectives = {
   rpo_seconds: RPO_SECONDS,
@@ -180,7 +180,9 @@ export class DisasterRecoveryService {
       record.completed_at = Date.now();
       record.verified = true;
       this.updateSchedule("postgresql", Date.now());
-      console.log(`[DR] PostgreSQL backup completed: ${filename} (${stat.size} bytes)`);
+      console.log(
+        `[DR] PostgreSQL backup completed: ${filename} (${stat.size} bytes)`,
+      );
     } catch (err: any) {
       record.status = "failed";
       record.error = err.message;
@@ -206,9 +208,10 @@ export class DisasterRecoveryService {
         {
           order: 1,
           action: "stop_services",
-          command: "docker compose stop aegis aegis-dev",
-          description: "Stop Aegis application services to prevent writes during restore",
-          rollback_command: "docker compose start aegis",
+          command: "pm2 stop ecosystem.config.cjs",
+          description:
+            "Stop Aegis application services to prevent writes during restore",
+          rollback_command: "pm2 start ecosystem.config.cjs",
         },
         {
           order: 2,
@@ -241,9 +244,9 @@ export class DisasterRecoveryService {
         {
           order: 6,
           action: "restart_services",
-          command: "docker compose start aegis",
+          command: "pm2 start ecosystem.config.cjs",
           description: "Restart Aegis application services",
-          rollback_command: "docker compose stop aegis",
+          rollback_command: "pm2 stop ecosystem.config.cjs",
         },
       ],
     };
@@ -278,13 +281,16 @@ export class DisasterRecoveryService {
     const collections = ["knowledge_base", "alert_rules", "incidents", "logs"];
 
     try {
-      const snapshotData: Record<string, any> = { collections: {}, timestamp: Date.now() };
+      const snapshotData: Record<string, any> = {
+        collections: {},
+        timestamp: Date.now(),
+      };
 
       for (const collection of collections) {
         try {
           const response = await fetch(
             `http://${qdrantHost}:${qdrantPort}/collections/${collection}/snapshots`,
-            { method: "POST" }
+            { method: "POST" },
           );
           if (response.ok) {
             const data = await response.json();
@@ -346,21 +352,24 @@ export class DisasterRecoveryService {
         {
           order: 2,
           action: "list_snapshots",
-          command: "curl -s http://$QDRANT_HOST:6333/collections/{collection}/snapshots",
+          command:
+            "curl -s http://$QDRANT_HOST:6333/collections/{collection}/snapshots",
           description: "List available snapshots for each collection",
           rollback_command: "N/A",
         },
         {
           order: 3,
           action: "restore_snapshot",
-          command: "curl -X POST http://$QDRANT_HOST:6333/collections/{collection}/snapshots/recover -H 'Content-Type: application/json' -d '{\"location\": \"<snapshot_path>\"}'",
+          command:
+            "curl -X POST http://$QDRANT_HOST:6333/collections/{collection}/snapshots/recover -H 'Content-Type: application/json' -d '{\"location\": \"<snapshot_path>\"}'",
           description: "Restore collection from snapshot",
           rollback_command: "Re-restore from a different snapshot",
         },
         {
           order: 4,
           action: "verify_collections",
-          command: "curl -s http://$QDRANT_HOST:6333/collections/{collection} | jq .result.points_count",
+          command:
+            "curl -s http://$QDRANT_HOST:6333/collections/{collection} | jq .result.points_count",
           description: "Verify point counts in restored collections",
           rollback_command: "Re-restore from backup",
         },
@@ -415,7 +424,9 @@ export class DisasterRecoveryService {
         }
       } catch {}
 
-      console.log(`[DR] MinIO backup completed: mirror to ${BACKUP_DIR}/minio_mirror`);
+      console.log(
+        `[DR] MinIO backup completed: mirror to ${BACKUP_DIR}/minio_mirror`,
+      );
     } catch (err: any) {
       record.status = "failed";
       record.error = err.message;
@@ -457,7 +468,8 @@ export class DisasterRecoveryService {
           action: "restore_mirror",
           command: "mc mirror <backup_mirror_path> aegis-minio/aegis-documents",
           description: "Restore files from backup mirror to MinIO bucket",
-          rollback_command: "mc rm --recursive --force aegis-minio/aegis-documents",
+          rollback_command:
+            "mc rm --recursive --force aegis-minio/aegis-documents",
         },
         {
           order: 4,
@@ -511,7 +523,9 @@ export class DisasterRecoveryService {
         record.completed_at = Date.now();
         record.verified = true;
         this.updateSchedule("sqlite", Date.now());
-        console.log(`[DR] SQLite backup completed: ${filename} (${stat.size} bytes)`);
+        console.log(
+          `[DR] SQLite backup completed: ${filename} (${stat.size} bytes)`,
+        );
       } else {
         record.status = "failed";
         record.error = "SQLite database file not found";
@@ -566,7 +580,8 @@ export class DisasterRecoveryService {
         daily: 86400000,
         weekly: 604800000,
       };
-      schedule.next_backup = timestamp + (intervals[schedule.frequency] || 86400000);
+      schedule.next_backup =
+        timestamp + (intervals[schedule.frequency] || 86400000);
     }
   }
 
@@ -584,13 +599,23 @@ export class DisasterRecoveryService {
           console.log(`[DR] Auto-backup triggered for ${schedule.component}`);
           try {
             switch (schedule.component) {
-              case "postgresql": await this.backupPostgres(); break;
-              case "qdrant": await this.backupQdrant(); break;
-              case "minio": await this.backupMinIO(); break;
-              case "sqlite": await this.backupSQLite(); break;
+              case "postgresql":
+                await this.backupPostgres();
+                break;
+              case "qdrant":
+                await this.backupQdrant();
+                break;
+              case "minio":
+                await this.backupMinIO();
+                break;
+              case "sqlite":
+                await this.backupSQLite();
+                break;
             }
           } catch (err: any) {
-            console.error(`[DR] Auto-backup failed for ${schedule.component}: ${err.message}`);
+            console.error(
+              `[DR] Auto-backup failed for ${schedule.component}: ${err.message}`,
+            );
           }
         }
       }

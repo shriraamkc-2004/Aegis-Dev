@@ -6,44 +6,42 @@ This guide covers local development setup and production deployment on DigitalOc
 
 ## 📋 Prerequisites
 
-- **Node.js** v18+ installed
-- **Docker** and **Docker Compose** installed
+- **Node.js** v20+ installed
+- **Python** 3.10+ installed
 - **Git** installed
-- **PostgreSQL** (for local dev without Docker)
-- **Redis** (for local dev without Docker)
+- **PostgreSQL 15+**
+- **Redis 7+**
+- **PM2** (`npm install -g pm2`) for production process management
 
 ---
 
 ## 🚀 QUICK START - LOCAL DEVELOPMENT
 
-### Option 1: Using Docker (Recommended)
-
 ```bash
 # 1. Clone and navigate to project
-cd C:/Users/kcshr/OneDrive/Desktop/Aegis
+git clone <your-repo-url> aegis
+cd aegis
 
 # 2. Copy environment file
-copy .env.example .env
+cp .env.example .env
 
-# 3. Edit .env file - set these minimum values:
-#    POSTGRES_PASSWORD=your_secure_password
+# 3. Edit .env file with your credentials:
+#    DATABASE_URL=postgresql://aegis:password@localhost:5432/aegis_enterprise?schema=public
+#    REDIS_URL=redis://localhost:6379
 #    JWT_SECRET=your_jwt_secret_min_32_chars
 #    GEMINI_API_KEY=your_google_gemini_api_key
 
-# 4. Start all services
-docker-compose up -d
+# 4. Install dependencies
+npm install
+pip3 install -r requirements.txt
 
-# 5. Wait for services to be healthy (check logs)
-docker-compose logs -f
+# 5. Run database migrations
+npx prisma migrate deploy
+npx prisma generate
 
-# 6. Run database migrations
-docker-compose exec backend npx prisma migrate deploy
-docker-compose exec backend npx prisma generate
-
-# 7. Access the application
-# Frontend: http://localhost
-# Backend API: http://localhost:3000
-# API Health: http://localhost:3000/api/health
+# 6. Start development server
+npm run dev
+# Frontend + Backend API runs at: http://localhost:3000
 ```
 
 ### Option 2: Native Installation (Windows)
@@ -85,7 +83,43 @@ npm run dev
 
 ---
 
-## 🌐 PRODUCTION DEPLOYMENT - DIGITALOCEAN
+## ☁️ DEPLOYMENT ON RENDER (Zero Server Management — Recommended)
+
+Aegis includes a `render.yaml` Blueprint for automated deployment on Render.
+
+### Option A: One-Click Blueprint Setup
+
+1. Push your latest code to your GitHub repository.
+2. Go to [dashboard.render.com](https://dashboard.render.com) and click **New +** → **Blueprint**.
+3. Connect your repository.
+4. Render detects [`render.yaml`](file:///d:/Aegis/render.yaml) and automatically configures:
+   - **aegis-web**: Unified Web Service (Express API + React Frontend).
+   - **aegis-copilot**: Python AI Copilot microservice.
+   - **aegis-postgres**: Managed PostgreSQL database.
+5. Provide your `GEMINI_API_KEY` and `REDIS_URL` (free from [Upstash](https://upstash.com)) when prompted.
+6. Click **Apply** to deploy!
+
+### Option B: Manual Web Service Setup on Render
+
+1. **Database**: Click **New +** → **PostgreSQL** (Name: `aegis-postgres`, Plan: Free).
+2. **Web Service**: Click **New +** → **Web Service** and connect your repository:
+   - **Runtime**: Node
+   - **Build Command**: `npm install && npx prisma generate && npm run build`
+   - **Start Command**: `npm start`
+   - **Health Check Path**: `/api/public/health`
+   - **Environment Variables**:
+     - `NODE_ENV`: `production`
+     - `MODE`: `organization`
+     - `DATABASE_URL`: Connection string from your Render PostgreSQL database
+     - `REDIS_URL`: Free Redis connection string (from [Upstash](https://upstash.com))
+     - `JWT_SECRET`: Random 32+ character string
+     - `ENCRYPTION_KEY`: Random 32-character string
+     - `GEMINI_API_KEY`: Your Gemini API key
+3. Click **Deploy Web Service**. Render provides free SSL/HTTPS and automatically redeploys whenever you push to `main`!
+
+---
+
+## 🌐 PRODUCTION DEPLOYMENT - DIGITALOCEAN / VPS
 
 ### Step 1: Create DigitalOcean Account
 
@@ -108,12 +142,14 @@ npm run dev
 ### Step 3: Connect to Your Server
 
 **Windows (PowerShell):**
+
 ```powershell
 ssh root@123.45.67.89
 # Enter password or use SSH key
 ```
 
 **Mac/Linux:**
+
 ```bash
 ssh root@123.45.67.89
 ```
@@ -122,71 +158,67 @@ ssh root@123.45.67.89
 
 ```bash
 # Update system
-apt update && apt upgrade -y
+sudo apt update && sudo apt upgrade -y
 
-# Install Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sh get-docker.sh
+# Install Node.js 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
 
-# Install Docker Compose
-curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
+# Install Python 3, Git, PostgreSQL, Redis, and build tools
+sudo apt install -y git python3 python3-pip python3-venv postgresql postgresql-contrib redis-server nginx
 
-# Install Git
-apt install -y git
+# Install PM2 globally
+sudo npm install -g pm2
 
-# Install Node.js (for Prisma)
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-apt install -y nodejs
+# Enable and start PostgreSQL & Redis
+sudo systemctl enable --now postgresql
+sudo systemctl enable --now redis-server
 
-# Enable Docker to start on boot
-systemctl enable docker
-systemctl start docker
-
-# Add current user to docker group
-usermod -aG docker $USER
-# Logout and login again for group change to take effect
+# Configure PostgreSQL database and user
+sudo -u postgres psql -c "CREATE DATABASE aegis_enterprise;"
+sudo -u postgres psql -c "CREATE USER aegis WITH ENCRYPTED PASSWORD 'your_secure_password';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE aegis_enterprise TO aegis;"
 ```
 
-### Step 5: Deploy Aegis
+### Step 5: Deploy Aegis with PM2
 
 ```bash
 # Create application directory
-mkdir -p /opt/aegis
+sudo mkdir -p /opt/aegis
+sudo chown -R $USER:$USER /opt/aegis
 cd /opt/aegis
 
-# Clone your repository (or upload via SCP/FTP)
+# Clone your repository
 git clone <your-repo-url> .
-# OR upload files manually
 
-# Copy environment file
+# Copy environment file and configure
 cp .env.example .env
-
-# Edit .env with secure values
 nano .env
 
-# Required changes in .env:
-# POSTGRES_PASSWORD=<strong-password>
+# Set minimum required values in .env:
+# DATABASE_URL=postgresql://aegis:your_secure_password@localhost:5432/aegis_enterprise?schema=public
+# REDIS_URL=redis://localhost:6379
 # JWT_SECRET=<random-32-char-string>
 # ENCRYPTION_KEY=<random-32-char-string>
 # GEMINI_API_KEY=<your-gemini-key>
 # NODE_ENV=production
+# PORT=3000
 
-# Generate secure passwords:
-# openssl rand -base64 32
-
-# Start services
-docker-compose up -d
-
-# Check logs
-docker-compose logs -f
+# Install dependencies
+npm ci
+pip3 install -r requirements.txt
 
 # Run migrations
-docker-compose exec backend npx prisma migrate deploy
-docker-compose exec backend npx prisma generate
+npx prisma migrate deploy
+npx prisma generate
 
-# Restart to apply
-docker-compose restart
+# Build frontend and backend bundles
+npm run build
+
+# Start services via PM2
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 startup
 ```
 
 ### Step 6: Configure Domain & SSL
@@ -488,18 +520,19 @@ docker stats
 
 ## 📊 COST BREAKDOWN
 
-| Item | Monthly Cost | Annual Cost |
-|------|--------------|-------------|
-| Domain (.com) | - | $12-15 |
-| DigitalOcean Basic | $12 | $144 |
-| Backups (25GB) | $2 | $24 |
-| **Total** | **$14** | **$180** |
+| Item               | Monthly Cost | Annual Cost |
+| ------------------ | ------------ | ----------- |
+| Domain (.com)      | -            | $12-15      |
+| DigitalOcean Basic | $12          | $144        |
+| Backups (25GB)     | $2           | $24         |
+| **Total**          | **$14**      | **$180**    |
 
 ---
 
 ## ✅ DEPLOYMENT CHECKLIST
 
 ### Pre-Deployment
+
 - [ ] Domain purchased and DNS configured
 - [ ] DigitalOcean account created
 - [ ] Droplet provisioned (Ubuntu 22.04)
@@ -510,6 +543,7 @@ docker stats
 - [ ] SSL certificate installed (Let's Encrypt)
 
 ### Post-Deployment
+
 - [ ] All containers running (`docker-compose ps`)
 - [ ] Database migrations applied
 - [ ] API health endpoint responding
@@ -524,6 +558,7 @@ docker stats
 ## 📞 SUPPORT
 
 For issues:
+
 1. Check logs: `docker-compose logs -f`
 2. Check health: `curl http://localhost:3000/api/health`
 3. Review this guide's troubleshooting section

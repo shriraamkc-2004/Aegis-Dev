@@ -9,10 +9,6 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
 jobs:
   # ─── Test Job ────────────────────────────────────────────────────────────────
   test:
@@ -99,109 +95,27 @@ jobs:
 
   # ─── Build Job ───────────────────────────────────────────────────────────────
   build:
-    name: Build Docker Images
+    name: Verify Application Build
     runs-on: ubuntu-latest
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Free disk space
-        run: |
-          echo "Disk space before cleanup:"
-          df -h
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf "/usr/local/share/boost" || true
-          sudo rm -rf "$AGENT_TOOLSDIR" || true
-          docker system prune -a -f || true
-          echo "Disk space after cleanup:"
-          df -h
-
-      - name: Set lowercase repository name
-        run: |
-          echo "REPO_LC=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          node-version: '22'
+          cache: 'npm'
 
-      - name: Extract metadata for backend
-        id: meta-backend
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.REPO_LC }}-backend
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=backend-
-            type=semver,pattern={{version}}
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Build and push backend
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta-backend.outputs.tags }}
-          labels: ${{ steps.meta-backend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            NODE_ENV=production
+      - name: Generate Prisma client
+        run: npx prisma generate
 
-      - name: Extract metadata for frontend
-        id: meta-frontend
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.REPO_LC }}-frontend
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=frontend-
-            type=semver,pattern={{version}}
-
-      - name: Build and push frontend
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.frontend
-          push: true
-          tags: ${{ steps.meta-frontend.outputs.tags }}
-          labels: ${{ steps.meta-frontend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Extract metadata for copilot
-        id: meta-copilot
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.REPO_LC }}-copilot
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=copilot-
-            type=semver,pattern={{version}}
-
-      - name: Build and push copilot
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./copilot/Dockerfile
-          push: true
-          tags: ${{ steps.meta-copilot.outputs.tags }}
-          labels: ${{ steps.meta-copilot.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Build frontend and backend
+        run: npm run build
 
   # ─── Security Scan ───────────────────────────────────────────────────────────
   security:

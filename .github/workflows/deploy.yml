@@ -71,9 +71,6 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-        if: env.DEPLOY_HOST != ''
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -89,31 +86,30 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            echo "--- Rebuilding Docker images ---"
-            docker compose build --no-cache backend copilot frontend
+            echo "--- Installing Node and Python dependencies ---"
+            npm ci
+            pip3 install -r requirements.txt
 
             echo "--- Running database migrations ---"
-            docker compose run --rm backend npx prisma migrate deploy
+            npx prisma migrate deploy
+            npx prisma generate
 
-            echo "--- Rolling restart (zero-downtime) ---"
-            docker compose up -d --no-deps backend
-            sleep 10
-            docker compose up -d --no-deps copilot
-            sleep 5
-            docker compose up -d --no-deps frontend
+            echo "--- Building frontend and backend ---"
+            npm run build
+
+            echo "--- Reloading services with PM2 (zero-downtime) ---"
+            pm2 reload ecosystem.config.cjs || pm2 start ecosystem.config.cjs
+            pm2 save
 
             echo "--- Verifying health ---"
             for i in {1..10}; do
-              if curl -sf http://localhost:3000/api/health > /dev/null; then
+              if curl -sf http://localhost:3000/api/public/health > /dev/null || curl -sf http://localhost:3000/api/health > /dev/null; then
                 echo "Health check passed!"
                 break
               fi
               echo "Waiting for backend ($i/10)..."
-              sleep 5
+              sleep 3
             done
-
-            echo "--- Cleaning up old images ---"
-            docker image prune -f
 
             echo "=== Deployment complete at $(date) ==="
 
