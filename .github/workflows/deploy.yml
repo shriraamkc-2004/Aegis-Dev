@@ -56,6 +56,8 @@ jobs:
         run: npx prisma generate
 
       - name: Run unit tests
+        env:
+          MODE: demo
         run: npm test
 
   # ─── Job 3: Deploy to Production ──────────────────────────────────────────────
@@ -66,10 +68,24 @@ jobs:
     environment: production
 
     steps:
+      - name: Check SSH deployment configuration
+        id: check_ssh
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ]; then
+            echo "DEPLOY_HOST secret is not configured. Skipping VPS SSH deployment."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
+        if: steps.check_ssh.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Deploy via SSH
+        if: steps.check_ssh.outputs.skip != 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}

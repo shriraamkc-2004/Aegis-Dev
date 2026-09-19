@@ -8,7 +8,7 @@ services:
     name: aegis-web
     runtime: node
     plan: free
-    buildCommand: npm install && npx prisma generate && npm run build
+    buildCommand: npm install && npm rebuild sqlite3 --build-from-source && npx prisma generate && npm run build
     startCommand: npm start
     healthCheckPath: /api/public/health
     envVars:

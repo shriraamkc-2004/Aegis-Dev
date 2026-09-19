@@ -1,3 +1,5 @@
+process.env.MODE = process.env.MODE || 'demo';
+
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
