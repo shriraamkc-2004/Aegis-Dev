@@ -124,6 +124,10 @@ jobs:
           echo "Disk space after cleanup:"
           df -h
 
+      - name: Set lowercase repository name
+        run: |
+          echo "REPO_LC=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -138,7 +142,7 @@ jobs:
         id: meta-backend
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}-backend
+          images: ${{ env.REGISTRY }}/${{ env.REPO_LC }}-backend
           tags: |
             type=ref,event=branch
             type=sha,prefix=backend-
@@ -161,7 +165,7 @@ jobs:
         id: meta-frontend
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}-frontend
+          images: ${{ env.REGISTRY }}/${{ env.REPO_LC }}-frontend
           tags: |
             type=ref,event=branch
             type=sha,prefix=frontend-
@@ -182,7 +186,7 @@ jobs:
         id: meta-copilot
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}-copilot
+          images: ${{ env.REGISTRY }}/${{ env.REPO_LC }}-copilot
           tags: |
             type=ref,event=branch
             type=sha,prefix=copilot-
