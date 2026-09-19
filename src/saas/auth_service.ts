@@ -9,16 +9,29 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { getPrismaClient, isPostgresConnected } from "./prisma_client.js";
 import type { Role } from "../generated/prisma/index.js";
+import {
+  sendPasswordResetEmail,
+  sendEmailVerification,
+} from "../services/email_service.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────────
 
-const JWT_SECRET = process.env.JWT_SECRET || "aegis-enterprise-secret-key-change-in-production";
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || JWT_SECRET + "-refresh";
+const JWT_SECRET =
+  process.env.JWT_SECRET || "aegis-enterprise-secret-key-change-in-production";
+const JWT_REFRESH_SECRET =
+  process.env.JWT_REFRESH_SECRET || JWT_SECRET + "-refresh";
 const ACCESS_TOKEN_EXPIRY = process.env.ACCESS_TOKEN_EXPIRY || "15m";
-const REFRESH_TOKEN_EXPIRY_DAYS = parseInt(process.env.REFRESH_TOKEN_EXPIRY_DAYS || "7");
-const PASSWORD_RESET_EXPIRY_HOURS = parseInt(process.env.PASSWORD_RESET_EXPIRY_HOURS || "1");
-const EMAIL_VERIFY_EXPIRY_HOURS = parseInt(process.env.EMAIL_VERIFY_EXPIRY_HOURS || "24");
-const EMAIL_VERIFICATION_REQUIRED = process.env.EMAIL_VERIFICATION_REQUIRED !== "false";
+const REFRESH_TOKEN_EXPIRY_DAYS = parseInt(
+  process.env.REFRESH_TOKEN_EXPIRY_DAYS || "7",
+);
+const PASSWORD_RESET_EXPIRY_HOURS = parseInt(
+  process.env.PASSWORD_RESET_EXPIRY_HOURS || "1",
+);
+const EMAIL_VERIFY_EXPIRY_HOURS = parseInt(
+  process.env.EMAIL_VERIFY_EXPIRY_HOURS || "24",
+);
+const EMAIL_VERIFICATION_REQUIRED =
+  process.env.EMAIL_VERIFICATION_REQUIRED !== "false";
 
 export type SaasRole = Role;
 
@@ -53,7 +66,7 @@ export function generateAccessToken(user: SaasUser): string {
       type: "access",
     },
     JWT_SECRET,
-    { expiresIn: ACCESS_TOKEN_EXPIRY as any }
+    { expiresIn: ACCESS_TOKEN_EXPIRY as any },
   );
 }
 
@@ -66,11 +79,17 @@ export function generateRefreshTokenString(): string {
 export async function loginUser(
   email: string,
   password: string,
-  ipAddress: string
-): Promise<{ accessToken: string; refreshToken: string; user: SaasUser } | { error: string; status: number }> {
+  ipAddress: string,
+): Promise<
+  | { accessToken: string; refreshToken: string; user: SaasUser }
+  | { error: string; status: number }
+> {
   const connected = await isPostgresConnected();
   if (!connected) {
-    return { error: "PostgreSQL unavailable. SaaS authentication requires PostgreSQL.", status: 503 };
+    return {
+      error: "PostgreSQL unavailable. SaaS authentication requires PostgreSQL.",
+      status: 503,
+    };
   }
 
   const prisma = getPrismaClient();
@@ -85,11 +104,18 @@ export async function loginUser(
   }
 
   if (!user.is_active) {
-    return { error: "Account is deactivated. Contact your administrator.", status: 403 };
+    return {
+      error: "Account is deactivated. Contact your administrator.",
+      status: 403,
+    };
   }
 
   if (EMAIL_VERIFICATION_REQUIRED && !user.email_verified) {
-    return { error: "Email not verified. Please check your inbox for a verification link.", status: 403 };
+    return {
+      error:
+        "Email not verified. Please check your inbox for a verification link.",
+      status: 403,
+    };
   }
 
   const valid = bcrypt.compareSync(password, user.password_hash);
@@ -112,7 +138,9 @@ export async function loginUser(
   const refreshTokenRaw = generateRefreshTokenString();
   const refreshTokenHash = hashToken(refreshTokenRaw);
 
-  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(
+    Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+  );
 
   await prisma.refreshToken.create({
     data: {
@@ -140,8 +168,11 @@ export async function loginUser(
 
 export async function refreshTokens(
   refreshToken: string,
-  ipAddress: string
-): Promise<{ accessToken: string; refreshToken: string; user: SaasUser } | { error: string; status: number }> {
+  ipAddress: string,
+): Promise<
+  | { accessToken: string; refreshToken: string; user: SaasUser }
+  | { error: string; status: number }
+> {
   const connected = await isPostgresConnected();
   if (!connected) {
     return { error: "PostgreSQL unavailable.", status: 503 };
@@ -161,8 +192,13 @@ export async function refreshTokens(
 
   if (stored.expires_at < new Date()) {
     // Expired — delete and invalidate all user tokens
-    await prisma.refreshToken.deleteMany({ where: { user_id: stored.user_id } });
-    return { error: "Refresh token expired. Please log in again.", status: 401 };
+    await prisma.refreshToken.deleteMany({
+      where: { user_id: stored.user_id },
+    });
+    return {
+      error: "Refresh token expired. Please log in again.",
+      status: 401,
+    };
   }
 
   const user = stored.user;
@@ -188,7 +224,9 @@ export async function refreshTokens(
   const newAccessToken = generateAccessToken(saasUser);
   const newRefreshTokenRaw = generateRefreshTokenString();
   const newRefreshTokenHash = hashToken(newRefreshTokenRaw);
-  const newExpiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
+  const newExpiresAt = new Date(
+    Date.now() + REFRESH_TOKEN_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+  );
 
   await prisma.refreshToken.create({
     data: {
@@ -198,12 +236,20 @@ export async function refreshTokens(
     },
   });
 
-  return { accessToken: newAccessToken, refreshToken: newRefreshTokenRaw, user: saasUser };
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshTokenRaw,
+    user: saasUser,
+  };
 }
 
 // ─── Logout ──────────────────────────────────────────────────────────────────────
 
-export async function logoutUser(userId: number, refreshToken?: string, ipAddress?: string): Promise<void> {
+export async function logoutUser(
+  userId: number,
+  refreshToken?: string,
+  ipAddress?: string,
+): Promise<void> {
   const connected = await isPostgresConnected();
   if (!connected) return;
 
@@ -231,7 +277,7 @@ export async function logoutUser(userId: number, refreshToken?: string, ipAddres
 
 export async function forgotPassword(
   email: string,
-  ipAddress: string
+  ipAddress: string,
 ): Promise<{ message: string }> {
   const connected = await isPostgresConnected();
   if (!connected) {
@@ -239,7 +285,9 @@ export async function forgotPassword(
   }
 
   const prisma = getPrismaClient();
-  const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+  const user = await prisma.user.findUnique({
+    where: { email: email.toLowerCase().trim() },
+  });
 
   // Always return the same message to prevent email enumeration
   if (!user) {
@@ -251,7 +299,9 @@ export async function forgotPassword(
 
   const tokenRaw = generateSecureToken();
   const tokenHash = hashToken(tokenRaw);
-  const expiresAt = new Date(Date.now() + PASSWORD_RESET_EXPIRY_HOURS * 60 * 60 * 1000);
+  const expiresAt = new Date(
+    Date.now() + PASSWORD_RESET_EXPIRY_HOURS * 60 * 60 * 1000,
+  );
 
   await prisma.passwordResetToken.create({
     data: {
@@ -261,11 +311,14 @@ export async function forgotPassword(
     },
   });
 
-  // In production, send email. For now, log the token (dev mode only).
-  if (process.env.NODE_ENV === "development" || process.env.NODE_ENV !== "production") {
-    console.log(`[Password Reset] Token for ${email}: ${tokenRaw}`);
-    console.log(`[Password Reset] Reset URL: /reset-password?token=${tokenRaw}`);
-  }
+  // Dispatch the password reset email (non-blocking)
+  sendPasswordResetEmail({
+    to: user.email,
+    firstName: user.first_name || user.username,
+    token: tokenRaw,
+  }).catch((err) =>
+    console.error("[Auth] Failed to send password reset email:", err),
+  );
 
   await prisma.auditLog.create({
     data: {
@@ -284,7 +337,7 @@ export async function forgotPassword(
 export async function resetPassword(
   token: string,
   newPassword: string,
-  ipAddress: string
+  ipAddress: string,
 ): Promise<{ success: boolean; error?: string }> {
   const connected = await isPostgresConnected();
   if (!connected) {
@@ -304,7 +357,10 @@ export async function resetPassword(
 
   if (resetRecord.expires_at < new Date()) {
     await prisma.passwordResetToken.delete({ where: { id: resetRecord.id } });
-    return { success: false, error: "Reset token has expired. Please request a new one." };
+    return {
+      success: false,
+      error: "Reset token has expired. Please request a new one.",
+    };
   }
 
   if (newPassword.length < 8) {
@@ -323,7 +379,9 @@ export async function resetPassword(
   await prisma.passwordResetToken.delete({ where: { id: resetRecord.id } });
 
   // Invalidate all existing refresh tokens (force re-login)
-  await prisma.refreshToken.deleteMany({ where: { user_id: resetRecord.user_id } });
+  await prisma.refreshToken.deleteMany({
+    where: { user_id: resetRecord.user_id },
+  });
 
   await prisma.auditLog.create({
     data: {
@@ -341,7 +399,7 @@ export async function resetPassword(
 
 export async function sendVerificationEmail(
   userId: number,
-  ipAddress: string
+  ipAddress: string,
 ): Promise<{ success: boolean; error?: string; token?: string }> {
   const connected = await isPostgresConnected();
   if (!connected) {
@@ -360,11 +418,15 @@ export async function sendVerificationEmail(
   }
 
   // Delete any existing verification tokens
-  await prisma.emailVerificationToken.deleteMany({ where: { user_id: userId } });
+  await prisma.emailVerificationToken.deleteMany({
+    where: { user_id: userId },
+  });
 
   const tokenRaw = generateSecureToken();
   const tokenHash = hashToken(tokenRaw);
-  const expiresAt = new Date(Date.now() + EMAIL_VERIFY_EXPIRY_HOURS * 60 * 60 * 1000);
+  const expiresAt = new Date(
+    Date.now() + EMAIL_VERIFY_EXPIRY_HOURS * 60 * 60 * 1000,
+  );
 
   await prisma.emailVerificationToken.create({
     data: {
@@ -374,17 +436,20 @@ export async function sendVerificationEmail(
     },
   });
 
-  // In dev mode, log the token
-  if (process.env.NODE_ENV !== "production") {
-    console.log(`[Email Verify] Token for ${user.email}: ${tokenRaw}`);
-    console.log(`[Email Verify] Verify URL: /verify-email?token=${tokenRaw}`);
-  }
+  // Dispatch the verification email (non-blocking)
+  sendEmailVerification({
+    to: user.email,
+    firstName: user.first_name || user.username,
+    token: tokenRaw,
+  }).catch((err) =>
+    console.error("[Auth] Failed to send verification email:", err),
+  );
 
-  return { success: true, token: process.env.NODE_ENV !== "production" ? tokenRaw : undefined };
+  return { success: true };
 }
 
 export async function verifyEmail(
-  token: string
+  token: string,
 ): Promise<{ success: boolean; error?: string }> {
   const connected = await isPostgresConnected();
   if (!connected) {
@@ -403,8 +468,13 @@ export async function verifyEmail(
   }
 
   if (verifyRecord.expires_at < new Date()) {
-    await prisma.emailVerificationToken.delete({ where: { id: verifyRecord.id } });
-    return { success: false, error: "Verification token expired. Please request a new one." };
+    await prisma.emailVerificationToken.delete({
+      where: { id: verifyRecord.id },
+    });
+    return {
+      success: false,
+      error: "Verification token expired. Please request a new one.",
+    };
   }
 
   await prisma.user.update({
@@ -412,7 +482,9 @@ export async function verifyEmail(
     data: { email_verified: true },
   });
 
-  await prisma.emailVerificationToken.delete({ where: { id: verifyRecord.id } });
+  await prisma.emailVerificationToken.delete({
+    where: { id: verifyRecord.id },
+  });
 
   await prisma.auditLog.create({
     data: {
@@ -431,7 +503,7 @@ export async function changePassword(
   userId: number,
   currentPassword: string,
   newPassword: string,
-  ipAddress: string
+  ipAddress: string,
 ): Promise<{ success: boolean; error?: string }> {
   const connected = await isPostgresConnected();
   if (!connected) {
@@ -450,7 +522,10 @@ export async function changePassword(
   }
 
   if (newPassword.length < 8) {
-    return { success: false, error: "New password must be at least 8 characters." };
+    return {
+      success: false,
+      error: "New password must be at least 8 characters.",
+    };
   }
 
   const salt = bcrypt.genSaltSync(10);

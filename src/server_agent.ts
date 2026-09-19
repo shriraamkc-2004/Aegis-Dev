@@ -4,23 +4,44 @@ import { triggerAnomalyDiscordAlert } from "./discord_alert.js";
 import { promptRegistry } from "./copilot/prompt_registry.js";
 
 // Helper to log a reasoning step to db
-export async function logServerAgentStep(anomalyId: number, step: number, type: string, content: string) {
-  console.log(`[ReAct TS Agent] Anomaly #${anomalyId} | Step ${step} | ${type}: ${content}`);
+export async function logServerAgentStep(
+  anomalyId: number,
+  step: number,
+  type: string,
+  content: string,
+) {
+  console.log(
+    `[ReAct TS Agent] Anomaly #${anomalyId} | Step ${step} | ${type}: ${content}`,
+  );
   await dbRun(
     "INSERT INTO agent_logs (anomaly_id, timestamp, step, type, content) VALUES (?, ?, ?, ?, ?)",
-    [anomalyId, Date.now() / 1000, step, type, content]
+    [anomalyId, Date.now() / 1000, step, type, content],
   );
 }
 
 // Function to call the local MCP tools on the Node backend
-async function callLocalMCPTool(toolName: string, args: any, anomalyId: number): Promise<string> {
+async function callLocalMCPTool(
+  toolName: string,
+  args: any,
+  anomalyId: number,
+): Promise<string> {
   switch (toolName) {
     case "query_database": {
       const sql = (args.sql_query || "").trim();
       if (sql.includes(";")) {
         return "Error: MCP query_database does not allow stacked queries or semicolons.";
       }
-      const forbiddenKeywords = ["drop", "delete", "update", "insert", "alter", "create", "replace", "attach", "pragma"];
+      const forbiddenKeywords = [
+        "drop",
+        "delete",
+        "update",
+        "insert",
+        "alter",
+        "create",
+        "replace",
+        "attach",
+        "pragma",
+      ];
       const sqlLower = sql.toLowerCase();
       for (const kw of forbiddenKeywords) {
         const regex = new RegExp(`\\b${kw}\\b`, "i");
@@ -52,10 +73,14 @@ INFO [Agent] Spawned AI Agent Loop for Anomaly ID: #${anomalyId}.`;
       const raiseZ = args.raise_z_threshold;
       const actions: string[] = [];
       if (source) {
-        actions.push(`Successfully added routing rule to throttle traffic originating from source: '${source}'`);
+        actions.push(
+          `Successfully added routing rule to throttle traffic originating from source: '${source}'`,
+        );
       }
       if (raiseZ) {
-        actions.push(`Dynamically adjusted detector Z-score trigger sensitivity setting to Z=${raiseZ}`);
+        actions.push(
+          `Dynamically adjusted detector Z-score trigger sensitivity setting to Z=${raiseZ}`,
+        );
       }
       return actions.length > 0
         ? "Mitigation response: " + actions.join(" | ")
@@ -71,7 +96,9 @@ INFO [Agent] Spawned AI Agent Loop for Anomaly ID: #${anomalyId}.`;
         const response = await fetch(webhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: `🛡️ **Node MCP Agent Update:** ${message}` })
+          body: JSON.stringify({
+            content: `🛡️ Node MCP Agent Update: ${message}`,
+          }),
         });
         if (response.status === 204 || response.ok) {
           return "Discord notification transmitted successfully.";
@@ -99,7 +126,14 @@ INFO [Agent] Spawned AI Agent Loop for Anomaly ID: #${anomalyId}.`;
       riskScore += sourceEntropy > 1.5 ? 5 : 0; // High source entropy (diverse sources)
       riskScore += eventRate > 20 ? 10 : 0; // Burst multiplier
       riskScore = Math.min(Math.round(riskScore), 100);
-      const riskLevel = riskScore >= 80 ? "CRITICAL" : riskScore >= 60 ? "HIGH" : riskScore >= 40 ? "MEDIUM" : "LOW";
+      const riskLevel =
+        riskScore >= 80
+          ? "CRITICAL"
+          : riskScore >= 60
+            ? "HIGH"
+            : riskScore >= 40
+              ? "MEDIUM"
+              : "LOW";
       return JSON.stringify({
         risk_score: riskScore,
         risk_level: riskLevel,
@@ -110,23 +144,61 @@ INFO [Agent] Spawned AI Agent Loop for Anomaly ID: #${anomalyId}.`;
           hybrid_impact: Math.min(hybridScore * 15, 15),
           burst_multiplier: eventRate > 20 ? 10 : 0,
           source_entropy_factor: sourceEntropy > 1.5 ? 5 : 0,
-        }
+        },
       });
     }
     case "search_attack_patterns": {
       const pattern = args.pattern || "ddos";
-      const patterns: Record<string, { name: string; description: string; indicators: string[] }> = {
-        ddos: { name: "DDoS Attack", description: "Distributed Denial of Service - high volume traffic from multiple sources", indicators: ["Sudden traffic spike >5x baseline", "Multiple source IPs", "Uniform request patterns"] },
-        bot: { name: "Bot Activity", description: "Automated bot traffic mimicking user behavior", indicators: ["Rapid sequential requests", "Identical user agents", "Non-human timing patterns"] },
-        brute_force: { name: "Brute Force", description: "Repeated authentication or enumeration attempts", indicators: ["High failure rate", "Sequential parameter variation", "Rapid retry intervals"] },
-        injection: { name: "Injection Attack", description: "SQL/NoSQL/Command injection attempts", indicators: ["Unusual query patterns", "Special characters in input", "Abnormal error rates"] },
+      const patterns: Record<
+        string,
+        { name: string; description: string; indicators: string[] }
+      > = {
+        ddos: {
+          name: "DDoS Attack",
+          description:
+            "Distributed Denial of Service - high volume traffic from multiple sources",
+          indicators: [
+            "Sudden traffic spike >5x baseline",
+            "Multiple source IPs",
+            "Uniform request patterns",
+          ],
+        },
+        bot: {
+          name: "Bot Activity",
+          description: "Automated bot traffic mimicking user behavior",
+          indicators: [
+            "Rapid sequential requests",
+            "Identical user agents",
+            "Non-human timing patterns",
+          ],
+        },
+        brute_force: {
+          name: "Brute Force",
+          description: "Repeated authentication or enumeration attempts",
+          indicators: [
+            "High failure rate",
+            "Sequential parameter variation",
+            "Rapid retry intervals",
+          ],
+        },
+        injection: {
+          name: "Injection Attack",
+          description: "SQL/NoSQL/Command injection attempts",
+          indicators: [
+            "Unusual query patterns",
+            "Special characters in input",
+            "Abnormal error rates",
+          ],
+        },
       };
       const match = patterns[pattern.toLowerCase()] || patterns["ddos"];
       return JSON.stringify(match);
     }
     case "generate_incident_report": {
       const aId = args.anomaly_id;
-      const row = await dbGet<any>("SELECT * FROM anomalies WHERE id = ?", [aId]);
+      const row = await dbGet<any>("SELECT * FROM anomalies WHERE id = ?", [
+        aId,
+      ]);
       if (!row) return `No anomaly found with ID ${aId}`;
       const report = {
         incident_id: `INC-${aId}`,
@@ -149,29 +221,150 @@ INFO [Agent] Spawned AI Agent Loop for Anomaly ID: #${anomalyId}.`;
       return JSON.stringify(report, null, 2);
     }
     case "get_threat_statistics": {
-      const totalAnomalies = await dbGet<{ total: number }>("SELECT COUNT(*) as total FROM anomalies");
-      const totalIncidents = await dbGet<{ total: number }>("SELECT COUNT(*) as total FROM incidents");
-      const criticalCount = await dbGet<{ total: number }>("SELECT COUNT(*) as total FROM anomalies WHERE severity = 'CRITICAL'");
-      const mitigatedCount = await dbGet<{ total: number }>("SELECT COUNT(*) as total FROM anomalies WHERE status = 'Mitigated'");
-      const sourceDist = await dbAll("SELECT source, COUNT(*) as count FROM events WHERE timestamp > (strftime('%s','now') - 300) GROUP BY source ORDER BY count DESC");
-      return JSON.stringify({
-        total_anomalies: totalAnomalies?.total || 0,
-        total_incidents: totalIncidents?.total || 0,
-        critical_anomalies: criticalCount?.total || 0,
-        mitigated: mitigatedCount?.total || 0,
-        pending: (totalAnomalies?.total || 0) - (mitigatedCount?.total || 0),
-        source_distribution: sourceDist,
-      }, null, 2);
+      const totalAnomalies = await dbGet<{ total: number }>(
+        "SELECT COUNT(*) as total FROM anomalies",
+      );
+      const totalIncidents = await dbGet<{ total: number }>(
+        "SELECT COUNT(*) as total FROM incidents",
+      );
+      const criticalCount = await dbGet<{ total: number }>(
+        "SELECT COUNT(*) as total FROM anomalies WHERE severity = 'CRITICAL'",
+      );
+      const mitigatedCount = await dbGet<{ total: number }>(
+        "SELECT COUNT(*) as total FROM anomalies WHERE status = 'Mitigated'",
+      );
+      const sourceDist = await dbAll(
+        "SELECT source, COUNT(*) as count FROM events WHERE timestamp > (strftime('%s','now') - 300) GROUP BY source ORDER BY count DESC",
+      );
+      return JSON.stringify(
+        {
+          total_anomalies: totalAnomalies?.total || 0,
+          total_incidents: totalIncidents?.total || 0,
+          critical_anomalies: criticalCount?.total || 0,
+          mitigated: mitigatedCount?.total || 0,
+          pending: (totalAnomalies?.total || 0) - (mitigatedCount?.total || 0),
+          source_distribution: sourceDist,
+        },
+        null,
+        2,
+      );
     }
     default:
       return `Unknown MCP tool: ${toolName}`;
   }
 }
 
+export const MCP_TOOLS_DESC = [
+  {
+    name: "query_database",
+    description:
+      "Executes SELECT statements on SQLite to query transaction sources and frequencies",
+    properties: { sql_query: "SELECT query string" },
+  },
+  {
+    name: "read_system_logs",
+    description: "Inspects last 15 system log entries on the backend",
+    properties: {},
+  },
+  {
+    name: "mitigate_anomaly",
+    description: "Throttles source traffic or increases Z score threshold",
+    properties: {
+      ip_or_source: "source string",
+      raise_z_threshold: "new threshold number",
+    },
+  },
+  {
+    name: "trigger_discord_alert",
+    description:
+      "Sends visual alerts or mitigation news to the Discord webhook",
+    properties: { message: "custom warning string" },
+  },
+  {
+    name: "calculate_risk_score",
+    description:
+      "Calculates a risk score (0-100) for an anomaly based on Z-Score, event rate, and burst patterns",
+    properties: {
+      anomaly_id: "anomaly ID number",
+      event_rate: "current events per second",
+      z_score: "current Z-Score value",
+    },
+  },
+  {
+    name: "search_attack_patterns",
+    description:
+      "Searches known attack patterns (ddos, bot, brute_force, injection) and returns indicators",
+    properties: {
+      pattern: "attack pattern name: ddos, bot, brute_force, or injection",
+    },
+  },
+  {
+    name: "generate_incident_report",
+    description:
+      "Generates a structured incident report for a given anomaly ID",
+    properties: { anomaly_id: "anomaly ID number" },
+  },
+  {
+    name: "get_threat_statistics",
+    description:
+      "Returns aggregate threat statistics including total anomalies, incidents, severity distribution, and source distribution",
+    properties: {},
+  },
+];
+
+export async function callGroqChatCompletion(
+  messages: Array<{ role: string; content: string }>,
+  model: string = process.env.GROQ_MODEL || "qwen/qwen3.8-27b",
+  maxTokens: number = 800,
+): Promise<{
+  text: string;
+  model: string;
+  responseTime: number;
+  tokensIn?: number;
+  tokensOut?: number;
+}> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey || apiKey.trim() === "" || apiKey === "YOUR_GROQ_API_KEY_HERE") {
+    throw new Error("GROQ_API_KEY not configured or invalid");
+  }
+  const startTime = Date.now();
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey.trim()}`,
+      "Content-Type": "application/json",
+      "User-Agent": "Aegis-SOC/1.0",
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      max_tokens: maxTokens,
+      temperature: 0.1,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    throw new Error(`Groq API error ${res.status}: ${errBody}`);
+  }
+
+  const data = await res.json();
+  const text = data.choices?.[0]?.message?.content || "";
+  const responseTime = Date.now() - startTime;
+  const tokensIn = data.usage?.prompt_tokens;
+  const tokensOut = data.usage?.completion_tokens;
+  return { text, model, responseTime, tokensIn, tokensOut };
+}
+
 const geminiRequestTimestamps: number[] = [];
 
 // Helper to determine deterministic fallback parameters based on eventType
-function getDeterministicFallback(eventType: string, anomalyId: number, currentSpikeCount: number, mainSource: string) {
+function getDeterministicFallback(
+  eventType: string,
+  anomalyId: number,
+  currentSpikeCount: number,
+  mainSource: string,
+) {
   let aiDiagnosis = "Anomaly detected. Further investigation is recommended.";
   let finalDiagnosis = `Mitigated sudden anomaly burst successfully. Diagnosed spike coming from '${mainSource}' nodes. Throttled source and updated sliding filters.`;
   let rootCause = `Traffic spike (${currentSpikeCount} events/sec) from '${mainSource}' clients — automated anomaly pattern detected`;
@@ -179,31 +372,36 @@ function getDeterministicFallback(eventType: string, anomalyId: number, currentS
   let recAction = `Investigate the sudden spike in event frequency and review system logs. Check if source '${mainSource}' needs permanent blocking.`;
 
   if (eventType === "failed_login") {
-    aiDiagnosis = "Repeated authentication failures detected. Recommended actions include account lockout enforcement and source investigation.";
+    aiDiagnosis =
+      "Repeated authentication failures detected. Recommended actions include account lockout enforcement and source investigation.";
     finalDiagnosis = `Mitigated brute force login attempts successfully from '${mainSource}'. Throttled source and updated sliding window triggers.`;
     rootCause = `High rate of failed authentication attempts from '${mainSource}' sources — potential Brute Force attack detected`;
     resolution = `Source '${mainSource}' blocked at firewall. Enforced rate-limiting and lockout policy.`;
     recAction = `Audit authentication logs for source '${mainSource}'. Block persistent failed IPs and verify MFA integrity.`;
   } else if (eventType === "ddos" || eventType === "order_placed") {
-    aiDiagnosis = "Abnormal traffic surge observed. Recommended actions include traffic filtering and upstream mitigation.";
+    aiDiagnosis =
+      "Abnormal traffic surge observed. Recommended actions include traffic filtering and upstream mitigation.";
     finalDiagnosis = `Mitigated sudden order burst (DDoS/Spike) successfully. Throttled source '${mainSource}' and updated sliding Z-Score filters.`;
     rootCause = `Traffic spike (${currentSpikeCount} events/sec) predominantly from '${mainSource}' clients — automated DDoS pattern detected`;
     resolution = `Source '${mainSource}' throttled. Z-Score threshold raised to 4.5. All systems stabilized.`;
     recAction = `Review traffic from '${mainSource}' for potential DDoS/bot activity. Ensure statistical filters are normalized.`;
   } else if (eventType === "data_transfer" || eventType === "exfiltration") {
-    aiDiagnosis = "Potential data transfer anomaly detected. Review access patterns and investigate affected systems.";
+    aiDiagnosis =
+      "Potential data transfer anomaly detected. Review access patterns and investigate affected systems.";
     finalDiagnosis = `Mitigated data exfiltration burst successfully. Suspended route for source '${mainSource}' and initiated forensic quarantine.`;
     rootCause = `Abnormal volume of outbound data transfer detected to '${mainSource}' channels`;
     resolution = `Suspended network route for source '${mainSource}' to halt data transfer.`;
     recAction = `Review data access logs for source '${mainSource}'. Investigate outbound data destination IPs.`;
   } else if (eventType === "heartbeat_miss") {
-    aiDiagnosis = "Operational heartbeat disruption detected. Verify infrastructure health and service dependencies.";
+    aiDiagnosis =
+      "Operational heartbeat disruption detected. Verify infrastructure health and service dependencies.";
     finalDiagnosis = `Mitigated service failure. Detected high heartbeat miss rate. Restarted affected nodes for source '${mainSource}'.`;
     rootCause = `System server heartbeat failures logged from internal components`;
     resolution = `Automated orchestrator rebooted degraded microservices.`;
     recAction = `Check system service health dashboard. Inspect container logs for memory exhaust (OOM) or deadlocks.`;
   } else if (eventType === "privileged_action") {
-    aiDiagnosis = "Privileged activity deviation identified. Validate authorization and audit user actions.";
+    aiDiagnosis =
+      "Privileged activity deviation identified. Validate authorization and audit user actions.";
     finalDiagnosis = `Mitigated privileged activity spike. Suspended credential privileges for '${mainSource}' session.`;
     rootCause = `Unusual burst of privileged actions detected from client '${mainSource}'`;
     resolution = `Temporarily suspended privileged credentials for '${mainSource}' session.`;
@@ -214,20 +412,37 @@ function getDeterministicFallback(eventType: string, anomalyId: number, currentS
 }
 
 // Global helper to run deterministic local fallback flow
-async function runDeterministicFallback(anomalyId: number, currentSpikeCount: number, mainSource: string, eventType: string) {
+async function runDeterministicFallback(
+  anomalyId: number,
+  currentSpikeCount: number,
+  mainSource: string,
+  eventType: string,
+) {
   let severity = "MEDIUM";
   try {
-    const row = await dbGet<{ severity: string }>("SELECT severity FROM anomalies WHERE id = ?", [anomalyId]);
+    const row = await dbGet<{ severity: string }>(
+      "SELECT severity FROM anomalies WHERE id = ?",
+      [anomalyId],
+    );
     if (row && row.severity) {
       severity = row.severity.toUpperCase();
     }
   } catch (_) {}
 
-  const isCriticalRetryFail = (severity === "CRITICAL");
-  const resolutionStatus = isCriticalRetryFail ? "⚠ Manual Review Recommended" : "✅ Investigation Complete";
-  const mitigationSummary = isCriticalRetryFail ? "Analyst escalation required." : "Local containment executed.";
+  const isCriticalRetryFail = severity === "CRITICAL";
+  const resolutionStatus = isCriticalRetryFail
+    ? "⚠ Manual Review Recommended"
+    : "✅ Investigation Complete";
+  const mitigationSummary = isCriticalRetryFail
+    ? "Analyst escalation required."
+    : "Local containment executed.";
 
-  const fb = getDeterministicFallback(eventType, anomalyId, currentSpikeCount, mainSource);
+  const fb = getDeterministicFallback(
+    eventType,
+    anomalyId,
+    currentSpikeCount,
+    mainSource,
+  );
 
   // Step 1: Query database
   let step = 1;
@@ -235,49 +450,87 @@ async function runDeterministicFallback(anomalyId: number, currentSpikeCount: nu
     anomalyId,
     step,
     "Thought",
-    `The sliding-window statistical engine triggered a breach alarm with a Z-Score spike (Anomaly ID: #${anomalyId}). I need to query our local database using SQLite to identify if the spike originates from a single source device or client.`
+    `The sliding-window statistical engine triggered a breach alarm with a Z-Score spike (Anomaly ID: #${anomalyId}). I need to query our local database using SQLite to identify if the spike originates from a single source device or client.`,
   );
-  
-  const actionArgs1 = { sql_query: "SELECT source, count(*) as count FROM events WHERE timestamp > (strftime('%s', 'now') - 60) GROUP BY source ORDER BY count DESC" };
-  await logServerAgentStep(anomalyId, step, "Action", `Invoke 'query_database' with args: ${JSON.stringify(actionArgs1)}`);
-  
-  const observation1 = JSON.stringify([{ source: mainSource, count: currentSpikeCount }]);
+
+  const actionArgs1 = {
+    sql_query:
+      "SELECT source, count(*) as count FROM events WHERE timestamp > (strftime('%s', 'now') - 60) GROUP BY source ORDER BY count DESC",
+  };
+  await logServerAgentStep(
+    anomalyId,
+    step,
+    "Action",
+    `Invoke 'query_database' with args: ${JSON.stringify(actionArgs1)}`,
+  );
+
+  const observation1 = JSON.stringify([
+    { source: mainSource, count: currentSpikeCount },
+  ]);
   await logServerAgentStep(anomalyId, step, "Observation", observation1);
-  
+
   // Step 2: Mitigate
   step = 2;
   await logServerAgentStep(
     anomalyId,
     step,
     "Thought",
-    `The database records confirm that a traffic spike (${currentSpikeCount} events/sec) is originating predominantly from '${mainSource}' clients. Event type '${eventType}' is the primary driver. I should block the '${mainSource}' source and raise our Z-Score sensitivity threshold.`
+    `The database records confirm that a traffic spike (${currentSpikeCount} events/sec) is originating predominantly from '${mainSource}' clients. Event type '${eventType}' is the primary driver. I should block the '${mainSource}' source and raise our Z-Score sensitivity threshold.`,
   );
-  
+
   const actionArgs2 = { ip_or_source: mainSource, raise_z_threshold: 4.5 };
-  await logServerAgentStep(anomalyId, step, "Action", `Invoke 'mitigate_anomaly' with args: ${JSON.stringify(actionArgs2)}`);
-  
-  const observation2 = await callLocalMCPTool("mitigate_anomaly", actionArgs2, anomalyId);
+  await logServerAgentStep(
+    anomalyId,
+    step,
+    "Action",
+    `Invoke 'mitigate_anomaly' with args: ${JSON.stringify(actionArgs2)}`,
+  );
+
+  const observation2 = await callLocalMCPTool(
+    "mitigate_anomaly",
+    actionArgs2,
+    anomalyId,
+  );
   await logServerAgentStep(anomalyId, step, "Observation", observation2);
-  
+
   // Step 3: Discord Alert & Finish
   step = 3;
   await logServerAgentStep(
     anomalyId,
     step,
     "Thought",
-    `The security block on '${mainSource}' is active, and our statistical filters are raised. I will now push a diagnostic confirmation alert to the engineering team's Discord alerting channel.`
+    `The security block on '${mainSource}' is active, and our statistical filters are raised. I will now push a diagnostic confirmation alert to the engineering team's Discord alerting channel.`,
   );
-  
-  const actionArgs3 = { message: `Automated mitigation active for Anomaly #${anomalyId}. Restricted traffic source '${mainSource}' and raised sliding Z-score baseline to 4.5.` };
-  await logServerAgentStep(anomalyId, step, "Action", `Invoke 'trigger_discord_alert' with args: ${JSON.stringify(actionArgs3)}`);
-  
-  const observation3 = await callLocalMCPTool("trigger_discord_alert", actionArgs3, anomalyId);
+
+  const actionArgs3 = {
+    message: `Automated mitigation active for Anomaly #${anomalyId}. Restricted traffic source '${mainSource}' and raised sliding Z-score baseline to 4.5.`,
+  };
+  await logServerAgentStep(
+    anomalyId,
+    step,
+    "Action",
+    `Invoke 'trigger_discord_alert' with args: ${JSON.stringify(actionArgs3)}`,
+  );
+
+  const observation3 = await callLocalMCPTool(
+    "trigger_discord_alert",
+    actionArgs3,
+    anomalyId,
+  );
   await logServerAgentStep(anomalyId, step, "Observation", observation3);
-  
-  await logServerAgentStep(anomalyId, step + 1, "Final Response", fb.finalDiagnosis);
-  
+
+  await logServerAgentStep(
+    anomalyId,
+    step + 1,
+    "Final Response",
+    fb.finalDiagnosis,
+  );
+
   // Update main anomaly status
-  await dbRun("UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?", [fb.finalDiagnosis, anomalyId]);
+  await dbRun(
+    "UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?",
+    [fb.finalDiagnosis, anomalyId],
+  );
 
   // Update linked incident with rich AI analysis and resolution status
   await dbRun(
@@ -291,23 +544,33 @@ async function runDeterministicFallback(anomalyId: number, currentSpikeCount: nu
       mitigationSummary,
       fb.aiDiagnosis,
       resolutionStatus,
-      anomalyId
-    ]
+      anomalyId,
+    ],
   );
 
   // Edit original Discord Alert
   await triggerAnomalyDiscordAlert(anomalyId, "resolved");
 }
 
-export async function runServerAgentLoop(anomalyId: number, currentSpikeCount: number) {
+export async function runServerAgentLoop(
+  anomalyId: number,
+  currentSpikeCount: number,
+) {
   // Check if GEMINI_API_KEY is configured
   const apiKey = process.env.GEMINI_API_KEY;
-  const isApiKeyInvalid = !apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "" || apiKey === "YOUR_GEMINI_API_KEY_HERE";
+  const isApiKeyInvalid =
+    !apiKey ||
+    apiKey === "MY_GEMINI_API_KEY" ||
+    apiKey.trim() === "" ||
+    apiKey === "YOUR_GEMINI_API_KEY_HERE";
 
   // Resolve anomaly severity
   let severity = "MEDIUM";
   try {
-    const row = await dbGet<{ severity: string }>("SELECT severity FROM anomalies WHERE id = ?", [anomalyId]);
+    const row = await dbGet<{ severity: string }>(
+      "SELECT severity FROM anomalies WHERE id = ?",
+      [anomalyId],
+    );
     if (row && row.severity) {
       severity = row.severity.toUpperCase();
     }
@@ -317,7 +580,7 @@ export async function runServerAgentLoop(anomalyId: number, currentSpikeCount: n
   let eventType = "order_placed";
   try {
     const typeRow = await dbGet<{ event_type: string }>(
-      "SELECT event_type FROM events WHERE timestamp > (strftime('%s', 'now') - 60) GROUP BY event_type ORDER BY COUNT(*) DESC LIMIT 1"
+      "SELECT event_type FROM events WHERE timestamp > (strftime('%s', 'now') - 60) GROUP BY event_type ORDER BY COUNT(*) DESC LIMIT 1",
     );
     if (typeRow && typeRow.event_type) {
       eventType = typeRow.event_type;
@@ -327,86 +590,300 @@ export async function runServerAgentLoop(anomalyId: number, currentSpikeCount: n
   let mainSource = "mobile";
   try {
     const sourceRow = await dbGet<{ source: string }>(
-      "SELECT source, count(*) as count FROM events WHERE timestamp > (strftime('%s', 'now') - 60) GROUP BY source ORDER BY count DESC LIMIT 1"
+      "SELECT source, count(*) as count FROM events WHERE timestamp > (strftime('%s', 'now') - 60) GROUP BY source ORDER BY count DESC LIMIT 1",
     );
     if (sourceRow && sourceRow.source) {
       mainSource = sourceRow.source;
     }
   } catch (_) {}
 
-  // Local helper to execute Gemini logic with retries and fallback models
-  const attemptGemini = async (): Promise<boolean> => {
+  // Local helper to execute Groq ReAct loop (<1s response)
+  const attemptGroq = async (): Promise<boolean> => {
     try {
-      console.log("[ReAct Agent] Key verified. Initializing Live Gemini ReAct loop...");
-      const ai = new GoogleGenAI({
-        apiKey: apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build'
-          }
-        }
-      });
+      const groqModel = process.env.GROQ_MODEL || "qwen/qwen3.8-27b";
+      console.log(
+        `[ReAct Agent] Key verified. Initializing Live Groq ReAct loop (${groqModel})...`,
+      );
 
-      const mcpToolsDesc = [
-        {
-          name: "query_database",
-          description: "Executes SELECT statements on SQLite to query transaction sources and frequencies",
-          properties: { sql_query: "SELECT query string" }
-        },
-        {
-          name: "read_system_logs",
-          description: "Inspects last 15 system log entries on the backend",
-          properties: {}
-        },
-        {
-          name: "mitigate_anomaly",
-          description: "Throttles source traffic or increases Z score threshold",
-          properties: { ip_or_source: "source string", raise_z_threshold: "new threshold number" }
-        },
-        {
-          name: "trigger_discord_alert",
-          description: "Sends visual alerts or mitigation news to the Discord webhook",
-          properties: { message: "custom warning string" }
-        },
-        {
-          name: "calculate_risk_score",
-          description: "Calculates a risk score (0-100) for an anomaly based on Z-Score, event rate, and burst patterns",
-          properties: { anomaly_id: "anomaly ID number", event_rate: "current events per second", z_score: "current Z-Score value" }
-        },
-        {
-          name: "search_attack_patterns",
-          description: "Searches known attack patterns (ddos, bot, brute_force, injection) and returns indicators",
-          properties: { pattern: "attack pattern name: ddos, bot, brute_force, or injection" }
-        },
-        {
-          name: "generate_incident_report",
-          description: "Generates a structured incident report for a given anomaly ID",
-          properties: { anomaly_id: "anomaly ID number" }
-        },
-        {
-          name: "get_threat_statistics",
-          description: "Returns aggregate threat statistics including total anomalies, incidents, severity distribution, and source distribution",
-          properties: {}
-        }
-      ];
-
-      // Retrieve prompt template from registry or use fallback
       let systemPrompt = "";
       try {
-        const activePrompt = await promptRegistry.getActivePrompt(1, "react_agent");
+        const activePrompt = await promptRegistry.getActivePrompt(
+          1,
+          "react_agent",
+        );
         if (activePrompt) {
           systemPrompt = activePrompt.prompt_template
             .replace("{{anomalyId}}", anomalyId.toString())
-            .replace("{{mcpToolsDesc}}", JSON.stringify(mcpToolsDesc, null, 2));
+            .replace(
+              "{{mcpToolsDesc}}",
+              JSON.stringify(MCP_TOOLS_DESC, null, 2),
+            );
         }
       } catch (err) {
-        console.error("[ReAct Agent] Failed to retrieve prompt template from registry. Using fallback.", err);
+        console.error(
+          "[ReAct Agent] Failed to retrieve prompt template from registry. Using fallback.",
+          err,
+        );
       }
 
       if (!systemPrompt) {
         systemPrompt = `You are the autonomous Aegis ReAct AI Agent. Your objective is investigate and solve Anomaly ID #${anomalyId} using our local tool server.
 Available tools metadata:
-${JSON.stringify(mcpToolsDesc, null, 2)}
+${JSON.stringify(MCP_TOOLS_DESC, null, 2)}
+
+You MUST proceed strictly by outputting steps in the following formatting block:
+Thought: <what you are reasoning>
+Action: <json representation of tool call, e.g. {"name": "query_database", "arguments": {"sql_query": "SELECT ..."}} >
+Observation: <this will be provided in the next turn>
+
+When the issue is resolved or you are summarizing, output:
+Final Response: <your ultimate diagnosis and security mitigation summary>
+
+IMPORTANT: Do not duplicate or combine blocks. Exit immediately when producing a "Final Response:".
+Begin by inspecting recent event rates with a SELECT query via query_database.`;
+      }
+
+      const messages: Array<{ role: string; content: string }> = [
+        {
+          role: "system",
+          content:
+            "You are the autonomous Aegis ReAct AI Agent specialized in real-time SOC incident triage and containment.",
+        },
+        { role: "user", content: systemPrompt },
+      ];
+
+      let step = 1;
+
+      for (let iteration = 0; iteration < 4; iteration++) {
+        const {
+          text: responseText,
+          model: modelUsed,
+          responseTime,
+        } = await callGroqChatCompletion(messages, groqModel, 800);
+
+        console.log(
+          `--- Groq Agent Step ${step} (${modelUsed} in ${responseTime}ms) ---\n${responseText}\n-----------------`,
+        );
+
+        const lines = responseText.split("\n");
+        let thoughtText = "";
+        let actionObject: any = null;
+        let finalResponseText = "";
+
+        for (const line of lines) {
+          if (line.trim().startsWith("Thought:")) {
+            thoughtText = line.replace("Thought:", "").trim();
+          } else if (line.trim().startsWith("Action:")) {
+            const jsonStr = line.replace("Action:", "").trim();
+            try {
+              actionObject = JSON.parse(jsonStr);
+              if (!actionObject.name || typeof actionObject.name !== "string") {
+                actionObject = null;
+              }
+            } catch (_) {
+              const start = jsonStr.indexOf("{");
+              const end = jsonStr.lastIndexOf("}");
+              if (start !== -1 && end !== -1) {
+                try {
+                  const cleanedJson = jsonStr.substring(start, end + 1);
+                  actionObject = JSON.parse(cleanedJson);
+                  if (
+                    !actionObject.name ||
+                    typeof actionObject.name !== "string"
+                  ) {
+                    actionObject = null;
+                  }
+                } catch (_) {}
+              }
+            }
+          } else if (line.trim().startsWith("Final Response:")) {
+            finalResponseText = line.replace("Final Response:", "").trim();
+          }
+        }
+
+        if (!thoughtText) {
+          thoughtText =
+            responseText.substring(0, 150).replace(/\n/g, " ") + "...";
+        }
+
+        await logServerAgentStep(anomalyId, step, "Thought", thoughtText);
+        messages.push({ role: "assistant", content: responseText });
+
+        if (finalResponseText) {
+          await logServerAgentStep(
+            anomalyId,
+            step + 1,
+            "Final Response",
+            finalResponseText,
+          );
+          await dbRun(
+            "UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?",
+            [finalResponseText, anomalyId],
+          );
+          await dbRun(
+            "UPDATE incidents SET root_cause = ?, ai_diagnosis = ?, resolution = ?, recommended_action = ?, status = 'MITIGATED', updated_at = ?, mitigation_summary = ?, agent_summary = ?, resolution_status = ? WHERE anomaly_id = ? AND status = 'OPEN'",
+            [
+              `Groq AI analysis of Z-score breach for Anomaly #${anomalyId}`,
+              finalResponseText,
+              "AI autonomous mitigation completed via Groq LPU.",
+              `Review the AI agent's mitigation actions for Anomaly #${anomalyId}. Verify system stability and check if the statistical baseline has normalized.`,
+              Date.now() / 1000,
+              "Groq AI-assisted mitigation completed.",
+              finalResponseText,
+              "✅ Investigation Complete",
+              anomalyId,
+            ],
+          );
+          await triggerAnomalyDiscordAlert(anomalyId, "resolved");
+          return true;
+        }
+
+        if (actionObject && actionObject.name) {
+          const toolName = actionObject.name;
+          const toolArgs = actionObject.arguments || {};
+
+          await logServerAgentStep(
+            anomalyId,
+            step,
+            "Action",
+            `Invoke '${toolName}' with args: ${JSON.stringify(toolArgs)}`,
+          );
+
+          const observation = await callLocalMCPTool(
+            toolName,
+            toolArgs,
+            anomalyId,
+          );
+          await logServerAgentStep(anomalyId, step, "Observation", observation);
+
+          messages.push({
+            role: "user",
+            content: `Observation: ${observation}`,
+          });
+          step++;
+        } else {
+          if (
+            responseText.includes("Final Response:") ||
+            responseText.includes("Mitigated")
+          ) {
+            const finalMatch = responseText.substring(
+              responseText.indexOf("Final") || 0,
+            );
+            await logServerAgentStep(
+              anomalyId,
+              step + 1,
+              "Final Response",
+              finalMatch,
+            );
+            await dbRun(
+              "UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?",
+              [finalMatch, anomalyId],
+            );
+            await dbRun(
+              "UPDATE incidents SET root_cause = ?, ai_diagnosis = ?, resolution = ?, recommended_action = ?, status = 'MITIGATED', updated_at = ?, mitigation_summary = ?, agent_summary = ?, resolution_status = ? WHERE anomaly_id = ? AND status = 'OPEN'",
+              [
+                `Groq AI analysis for Anomaly #${anomalyId}`,
+                finalMatch,
+                "AI autonomous mitigation completed via Groq LPU.",
+                `Verify containment of Anomaly #${anomalyId}. Check if traffic patterns have returned to baseline and review source distribution.`,
+                Date.now() / 1000,
+                "Groq AI-assisted mitigation completed.",
+                finalMatch,
+                "✅ Investigation Complete",
+                anomalyId,
+              ],
+            );
+            await triggerAnomalyDiscordAlert(anomalyId, "resolved");
+            return true;
+          }
+
+          messages.push({
+            role: "user",
+            content:
+              "Please declare your action or complete analysis immediately with a Final Response.",
+          });
+          step++;
+        }
+      }
+
+      const fallbackMsg =
+        "Groq agent analyzed transaction rates, isolated offending sources, and restored statistical balance.";
+      await logServerAgentStep(
+        anomalyId,
+        step + 1,
+        "Final Response",
+        fallbackMsg,
+      );
+      await dbRun(
+        "UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?",
+        [fallbackMsg, anomalyId],
+      );
+      await dbRun(
+        "UPDATE incidents SET root_cause = ?, ai_diagnosis = ?, resolution = ?, recommended_action = ?, status = 'MITIGATED', updated_at = ?, mitigation_summary = ?, agent_summary = ?, resolution_status = ? WHERE anomaly_id = ? AND status = 'OPEN'",
+        [
+          "Groq AI agent triage",
+          fallbackMsg,
+          "Autonomous containment executed.",
+          `Manually review Anomaly #${anomalyId} to confirm containment.`,
+          Date.now() / 1000,
+          "Groq containment executed.",
+          fallbackMsg,
+          "✅ Investigation Complete",
+          anomalyId,
+        ],
+      );
+      await triggerAnomalyDiscordAlert(anomalyId, "resolved");
+      return true;
+    } catch (err: any) {
+      console.error(
+        "[ReAct Agent] Error in Groq ReAct loop:",
+        err.message || err,
+      );
+      return false;
+    }
+  };
+
+  // Local helper to execute Gemini logic with retries and fallback models
+  const attemptGemini = async (): Promise<boolean> => {
+    try {
+      console.log(
+        "[ReAct Agent] Key verified. Initializing Live Gemini ReAct loop...",
+      );
+      const ai = new GoogleGenAI({
+        apiKey: apiKey,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
+        },
+      });
+
+      // Retrieve prompt template from registry or use fallback
+      let systemPrompt = "";
+      try {
+        const activePrompt = await promptRegistry.getActivePrompt(
+          1,
+          "react_agent",
+        );
+        if (activePrompt) {
+          systemPrompt = activePrompt.prompt_template
+            .replace("{{anomalyId}}", anomalyId.toString())
+            .replace(
+              "{{mcpToolsDesc}}",
+              JSON.stringify(MCP_TOOLS_DESC, null, 2),
+            );
+        }
+      } catch (err) {
+        console.error(
+          "[ReAct Agent] Failed to retrieve prompt template from registry. Using fallback.",
+          err,
+        );
+      }
+
+      if (!systemPrompt) {
+        systemPrompt = `You are the autonomous Aegis ReAct AI Agent. Your objective is investigate and solve Anomaly ID #${anomalyId} using our local tool server.
+Available tools metadata:
+${JSON.stringify(MCP_TOOLS_DESC, null, 2)}
 
 You MUST proceed strictly by outputting steps in the following formatting block:
 Thought: <what you are reasoning>
@@ -424,7 +901,11 @@ Begin by inspecting recent event rates with a SELECT query via query_database.`;
       let step = 1;
 
       // Exponential retry logic helper
-      const generateWithRetry = async (contents: any, retries = 3, initialDelay = 1000): Promise<{ text: string; model: string; responseTime: number }> => {
+      const generateWithRetry = async (
+        contents: any,
+        retries = 3,
+        initialDelay = 1000,
+      ): Promise<{ text: string; model: string; responseTime: number }> => {
         const models = ["gemini-3.5-flash", "gemini-2.5-flash"];
         let lastError: any = null;
 
@@ -438,25 +919,29 @@ Begin by inspecting recent event rates with a SELECT query via query_database.`;
                 contents,
                 config: {
                   temperature: 0.1,
-                  maxOutputTokens: 800
-                }
+                  maxOutputTokens: 800,
+                },
               });
               const responseTime = Date.now() - startTime;
-              
+
               // Simple audit logging for token and response metadata
               const tokens = (res as any).usageMetadata?.totalTokenCount || 0;
-              console.log(`[ReAct AI Audit] Model: ${modelToUse} | Latency: ${responseTime}ms | Tokens: ${tokens}`);
-              
+              console.log(
+                `[ReAct AI Audit] Model: ${modelToUse} | Latency: ${responseTime}ms | Tokens: ${tokens}`,
+              );
+
               return {
                 text: res.text || "",
                 model: modelToUse,
-                responseTime
+                responseTime,
               };
             } catch (err: any) {
               lastError = err;
-              console.warn(`[ReAct Gemini Attempt Failed] Model: ${modelToUse} | Attempt: ${attempt + 1} | Error: ${err.message || err}`);
+              console.warn(
+                `[ReAct Gemini Attempt Failed] Model: ${modelToUse} | Attempt: ${attempt + 1} | Error: ${err.message || err}`,
+              );
               if (attempt < retries - 1) {
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise((resolve) => setTimeout(resolve, delay));
                 delay *= 2;
               }
             }
@@ -466,9 +951,12 @@ Begin by inspecting recent event rates with a SELECT query via query_database.`;
       };
 
       for (let iteration = 0; iteration < 4; iteration++) {
-        const { text: responseText, model: modelUsed } = await generateWithRetry(messages);
+        const { text: responseText, model: modelUsed } =
+          await generateWithRetry(messages);
 
-        console.log(`--- Gemini Agent Step ${step} (Model: ${modelUsed}) ---\n${responseText}\n-----------------`);
+        console.log(
+          `--- Gemini Agent Step ${step} (Model: ${modelUsed}) ---\n${responseText}\n-----------------`,
+        );
 
         // Extract parts from response
         const lines = responseText.split("\n");
@@ -494,7 +982,10 @@ Begin by inspecting recent event rates with a SELECT query via query_database.`;
                 try {
                   const cleanedJson = jsonStr.substring(start, end + 1);
                   actionObject = JSON.parse(cleanedJson);
-                  if (!actionObject.name || typeof actionObject.name !== "string") {
+                  if (
+                    !actionObject.name ||
+                    typeof actionObject.name !== "string"
+                  ) {
                     actionObject = null;
                   }
                 } catch (_) {}
@@ -506,18 +997,37 @@ Begin by inspecting recent event rates with a SELECT query via query_database.`;
         }
 
         if (!thoughtText) {
-          thoughtText = responseText.substring(0, 150).replace(/\n/g, " ") + "...";
+          thoughtText =
+            responseText.substring(0, 150).replace(/\n/g, " ") + "...";
         }
 
         await logServerAgentStep(anomalyId, step, "Thought", thoughtText);
         messages.push({ role: "model", parts: [{ text: responseText }] });
 
         if (finalResponseText) {
-          await logServerAgentStep(anomalyId, step + 1, "Final Response", finalResponseText);
-          await dbRun("UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?", [finalResponseText, anomalyId]);
+          await logServerAgentStep(
+            anomalyId,
+            step + 1,
+            "Final Response",
+            finalResponseText,
+          );
+          await dbRun(
+            "UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?",
+            [finalResponseText, anomalyId],
+          );
           await dbRun(
             "UPDATE incidents SET root_cause = ?, ai_diagnosis = ?, resolution = ?, recommended_action = ?, status = 'MITIGATED', updated_at = ?, mitigation_summary = ?, agent_summary = ?, resolution_status = ? WHERE anomaly_id = ? AND status = 'OPEN'",
-            [`AI agent analysis of Z-score breach for Anomaly #${anomalyId}`, finalResponseText, "AI autonomous mitigation completed.", `Review the AI agent's mitigation actions for Anomaly #${anomalyId}. Verify system stability and check if the statistical baseline has normalized.`, Date.now() / 1000, "AI-assisted mitigation completed.", finalResponseText, "✅ Investigation Complete", anomalyId]
+            [
+              `AI agent analysis of Z-score breach for Anomaly #${anomalyId}`,
+              finalResponseText,
+              "AI autonomous mitigation completed.",
+              `Review the AI agent's mitigation actions for Anomaly #${anomalyId}. Verify system stability and check if the statistical baseline has normalized.`,
+              Date.now() / 1000,
+              "AI-assisted mitigation completed.",
+              finalResponseText,
+              "✅ Investigation Complete",
+              anomalyId,
+            ],
           );
           await triggerAnomalyDiscordAlert(anomalyId, "resolved");
           geminiRequestTimestamps.push(Date.now());
@@ -528,39 +1038,100 @@ Begin by inspecting recent event rates with a SELECT query via query_database.`;
           const toolName = actionObject.name;
           const toolArgs = actionObject.arguments || {};
 
-          await logServerAgentStep(anomalyId, step, "Action", `Invoke '${toolName}' with args: ${JSON.stringify(toolArgs)}`);
-          
-          const observation = await callLocalMCPTool(toolName, toolArgs, anomalyId);
+          await logServerAgentStep(
+            anomalyId,
+            step,
+            "Action",
+            `Invoke '${toolName}' with args: ${JSON.stringify(toolArgs)}`,
+          );
+
+          const observation = await callLocalMCPTool(
+            toolName,
+            toolArgs,
+            anomalyId,
+          );
           await logServerAgentStep(anomalyId, step, "Observation", observation);
 
-          messages.push({ role: "user", parts: [{ text: `Observation: ${observation}` }] });
+          messages.push({
+            role: "user",
+            parts: [{ text: `Observation: ${observation}` }],
+          });
           step++;
         } else {
-          if (responseText.includes("Final Response:") || responseText.includes("Mitigated")) {
-            const finalMatch = responseText.substring(responseText.indexOf("Final") || 0);
-            await logServerAgentStep(anomalyId, step + 1, "Final Response", finalMatch);
-            await dbRun("UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?", [finalMatch, anomalyId]);
+          if (
+            responseText.includes("Final Response:") ||
+            responseText.includes("Mitigated")
+          ) {
+            const finalMatch = responseText.substring(
+              responseText.indexOf("Final") || 0,
+            );
+            await logServerAgentStep(
+              anomalyId,
+              step + 1,
+              "Final Response",
+              finalMatch,
+            );
+            await dbRun(
+              "UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?",
+              [finalMatch, anomalyId],
+            );
             await dbRun(
               "UPDATE incidents SET root_cause = ?, ai_diagnosis = ?, resolution = ?, recommended_action = ?, status = 'MITIGATED', updated_at = ?, mitigation_summary = ?, agent_summary = ?, resolution_status = ? WHERE anomaly_id = ? AND status = 'OPEN'",
-              [`AI agent analysis for Anomaly #${anomalyId}`, finalMatch, "AI autonomous mitigation completed.", `Verify containment of Anomaly #${anomalyId}. Check if traffic patterns have returned to baseline and review source distribution.`, Date.now() / 1000, "AI-assisted mitigation completed.", finalMatch, "✅ Investigation Complete", anomalyId]
+              [
+                `AI agent analysis for Anomaly #${anomalyId}`,
+                finalMatch,
+                "AI autonomous mitigation completed.",
+                `Verify containment of Anomaly #${anomalyId}. Check if traffic patterns have returned to baseline and review source distribution.`,
+                Date.now() / 1000,
+                "AI-assisted mitigation completed.",
+                finalMatch,
+                "✅ Investigation Complete",
+                anomalyId,
+              ],
             );
             await triggerAnomalyDiscordAlert(anomalyId, "resolved");
             geminiRequestTimestamps.push(Date.now());
             return true;
           }
-          
-          messages.push({ role: "user", parts: [{ text: "Please declare your action or complete analysis immediately with a Final Response." }] });
+
+          messages.push({
+            role: "user",
+            parts: [
+              {
+                text: "Please declare your action or complete analysis immediately with a Final Response.",
+              },
+            ],
+          });
           step++;
         }
       }
 
       // Ultimate agent fail safe
-      const fallbackMessage = "Agent analyzed raw order feeds, discovered mobile device spike, throttled traffic and completed diagnostic containment.";
-      await logServerAgentStep(anomalyId, step + 1, "Final Response", fallbackMessage);
-      await dbRun("UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?", [fallbackMessage, anomalyId]);
+      const fallbackMessage =
+        "Agent analyzed raw order feeds, discovered mobile device spike, throttled traffic and completed diagnostic containment.";
+      await logServerAgentStep(
+        anomalyId,
+        step + 1,
+        "Final Response",
+        fallbackMessage,
+      );
+      await dbRun(
+        "UPDATE anomalies SET status = 'Mitigated', diagnosis = ? WHERE id = ?",
+        [fallbackMessage, anomalyId],
+      );
       await dbRun(
         "UPDATE incidents SET root_cause = ?, ai_diagnosis = ?, resolution = ?, recommended_action = ?, status = 'MITIGATED', updated_at = ?, mitigation_summary = ?, agent_summary = ?, resolution_status = ? WHERE anomaly_id = ? AND status = 'OPEN'",
-        ["AI agent fallback analysis", fallbackMessage, "Automated containment via fallback protocol.", `Manually review Anomaly #${anomalyId} to confirm fallback containment was sufficient. Check event sources for ongoing threats.`, Date.now() / 1000, "Local containment executed.", fallbackMessage, "✅ Investigation Complete", anomalyId]
+        [
+          "AI agent fallback analysis",
+          fallbackMessage,
+          "Automated containment via fallback protocol.",
+          `Manually review Anomaly #${anomalyId} to confirm fallback containment was sufficient. Check event sources for ongoing threats.`,
+          Date.now() / 1000,
+          "Local containment executed.",
+          fallbackMessage,
+          "✅ Investigation Complete",
+          anomalyId,
+        ],
       );
       await triggerAnomalyDiscordAlert(anomalyId, "resolved");
       geminiRequestTimestamps.push(Date.now());
@@ -571,62 +1142,54 @@ Begin by inspecting recent event rates with a SELECT query via query_database.`;
     }
   };
 
-  // Guard routing logic
-  if (isApiKeyInvalid) {
-    console.log("[Gemini Guard] Using fallback response.");
-    await runDeterministicFallback(anomalyId, currentSpikeCount, mainSource, eventType);
-    return;
-  }
+  // Multi-Provider Hybrid Cascade: Groq ➔ Gemini ➔ Local Rules
+  const hasGroq = !!(
+    process.env.GROQ_API_KEY &&
+    process.env.GROQ_API_KEY.trim() !== "" &&
+    process.env.GROQ_API_KEY !== "YOUR_GROQ_API_KEY_HERE"
+  );
+  const hasGemini = !isApiKeyInvalid;
 
-  if (severity === "LOW") {
-    console.log("[Gemini Guard] LOW severity bypass.");
-    console.log("[ReAct Agent] LOW severity anomaly. Local response generated.");
-    await runDeterministicFallback(anomalyId, currentSpikeCount, mainSource, eventType);
-    return;
-  }
-
-  if (severity === "MEDIUM") {
-    const now = Date.now();
-    while (geminiRequestTimestamps.length > 0 && geminiRequestTimestamps[0] < now - 60000) {
-      geminiRequestTimestamps.shift();
-    }
-    if (geminiRequestTimestamps.length >= 3) {
-      console.log("[Gemini Guard] Rate limit protection activated.");
-      console.log("[ReAct Agent] Gemini rate limit reached. Falling back to local response.");
-      await runDeterministicFallback(anomalyId, currentSpikeCount, mainSource, eventType);
+  // 1. Primary: Groq LPU (< 1 second ReAct execution)
+  if (hasGroq) {
+    console.log(
+      `[ReAct Agent] Executing Live ReAct reasoning via Groq (${process.env.GROQ_MODEL || "qwen/qwen3.8-27b"})...`,
+    );
+    const groqSuccess = await attemptGroq();
+    if (groqSuccess) {
+      console.log(
+        `[ReAct Agent] Anomaly #${anomalyId} successfully investigated and mitigated via Groq.`,
+      );
       return;
     }
-    const success = await attemptGemini();
-    if (!success) {
-      console.log("[Gemini Guard] Using fallback response.");
-      await runDeterministicFallback(anomalyId, currentSpikeCount, mainSource, eventType);
-    }
-    return;
+    console.warn(
+      `[ReAct Agent] Groq attempt failed for Anomaly #${anomalyId}. Falling back to Gemini...`,
+    );
   }
 
-  if (severity === "HIGH") {
-    const success = await attemptGemini();
-    if (!success) {
-      console.log("[Gemini Guard] Using fallback response.");
-      await runDeterministicFallback(anomalyId, currentSpikeCount, mainSource, eventType);
+  // 2. Secondary: Gemini (Cloud fallback)
+  if (hasGemini && severity !== "LOW") {
+    console.log("[ReAct Agent] Executing Live ReAct reasoning via Gemini...");
+    const geminiSuccess = await attemptGemini();
+    if (geminiSuccess) {
+      console.log(
+        `[ReAct Agent] Anomaly #${anomalyId} successfully investigated and mitigated via Gemini.`,
+      );
+      return;
     }
-    return;
+    console.warn(
+      `[ReAct Agent] Gemini attempt failed for Anomaly #${anomalyId}. Falling back to deterministic rules...`,
+    );
   }
 
-  if (severity === "CRITICAL") {
-    let success = await attemptGemini();
-    if (!success) {
-      console.log("[Gemini Guard] Retrying CRITICAL anomaly analysis.");
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      success = await attemptGemini();
-    }
-    if (!success) {
-      console.log("[Gemini Guard] Using fallback response.");
-      await runDeterministicFallback(anomalyId, currentSpikeCount, mainSource, eventType);
-    }
-    return;
-  }
-
-  // Fallback for any unknown severity state
-  await runDeterministicFallback(anomalyId, currentSpikeCount, mainSource, eventType);
+  // 3. Tertiary: Local Deterministic Rule Engine (100% uptime guarantee)
+  console.log(
+    `[ReAct Agent] Executing deterministic ReAct fallback containment for Anomaly #${anomalyId}.`,
+  );
+  await runDeterministicFallback(
+    anomalyId,
+    currentSpikeCount,
+    mainSource,
+    eventType,
+  );
 }

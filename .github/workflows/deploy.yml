@@ -1,0 +1,130 @@
+name: Deploy Aegis to Production
+
+on:
+  push:
+    branches:
+      - main
+
+# Only one deployment runs at a time — cancel any in-progress ones
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  # ─── Job 1: Lint & Type Check ─────────────────────────────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check (TypeScript)
+        run: npm run lint
+
+  # ─── Job 2: Unit Tests ────────────────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+  # ─── Job 3: Deploy to Production ──────────────────────────────────────────────
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            set -e
+            echo "=== Starting Aegis deployment at $(date) ==="
+
+            cd ${{ secrets.DEPLOY_PATH || '/opt/aegis' }}
+
+            echo "--- Pulling latest code ---"
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "--- Rebuilding Docker images ---"
+            docker compose build --no-cache backend copilot frontend
+
+            echo "--- Running database migrations ---"
+            docker compose run --rm backend npx prisma migrate deploy
+
+            echo "--- Rolling restart (zero-downtime) ---"
+            docker compose up -d --no-deps backend
+            sleep 10
+            docker compose up -d --no-deps copilot
+            sleep 5
+            docker compose up -d --no-deps frontend
+
+            echo "--- Verifying health ---"
+            for i in {1..10}; do
+              if curl -sf http://localhost:3000/api/health > /dev/null; then
+                echo "Health check passed!"
+                break
+              fi
+              echo "Waiting for backend ($i/10)..."
+              sleep 5
+            done
+
+            echo "--- Cleaning up old images ---"
+            docker image prune -f
+
+            echo "=== Deployment complete at $(date) ==="
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "✅ Aegis deployed successfully to production"
+          # Optional: add Discord/Slack webhook notification here
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Aegis deployment FAILED"
+          # Optional: add Discord/Slack webhook notification here
+
+# ─── Required GitHub Secrets ──────────────────────────────────────────────────
+# Go to: Settings → Secrets and variables → Actions → New repository secret
+#
+# DEPLOY_HOST          — Your server's IP address or domain (e.g. 1.2.3.4)
+# DEPLOY_USER          — SSH username (e.g. root or ubuntu)
+# DEPLOY_SSH_KEY       — Private SSH key (the full contents of your id_rsa file)
+# DEPLOY_PORT          — SSH port (optional, defaults to 22)
+# DEPLOY_PATH          — Path to the Aegis directory on the server (e.g. /opt/aegis)

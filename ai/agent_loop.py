@@ -186,19 +186,19 @@ def run_react_agent_loop(anomaly_id, db_path="storage/events.db"):
     # Initialize tools
     mcp = MCPServer(db_path=db_path)
     
-    # Check if Gemini API components are configured
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    use_ai = bool(gemini_key)
+    # Check AI API keys (Groq primary, Gemini secondary)
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    use_groq = bool(groq_key and groq_key != "YOUR_GROQ_API_KEY_HERE")
+    use_gemini = bool(gemini_key and gemini_key != "YOUR_GEMINI_API_KEY_HERE")
     
     # Fallback / Deterministic simulation representing a perfect ReAct cycle
-    if not use_ai:
-        print("[Agent Core] GEMINI_API_KEY not configured. Engaging robust rule-based ReAct fallback.")
+    if not use_groq and not use_gemini:
+        print("[Agent Core] Neither GROQ_API_KEY nor GEMINI_API_KEY configured. Engaging robust rule-based ReAct fallback.")
         _run_deterministic_fallback(anomaly_id, mcp, db_path)
         print("[Agent Core] ReAct Loop completed.")
         return
         
-    # Standard AI ReAct Loop utilizando REST endpoint with safety
-    print("[Agent Core] GEMINI_API_KEY found. Executing Live ReAct reasoning using Gemini.")
     import requests
     
     # System prompt directing ReAct flow with tools
@@ -217,33 +217,63 @@ Final Response: <summarize your diagnostics and mitigation steps>
 Let's begin! First step: inspect recent events SQL with query_database tool.
 """
     
-    headers = {
-        "Content-Type": "application/json"
-    }
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+    provider_name = "Groq" if use_groq else "Gemini"
+    print(f"[Agent Core] Executing Live ReAct reasoning using {provider_name}.")
     
-    messages = [{"role": "user", "parts": [{"text": system_prompt}]}]
+    groq_model = os.getenv("GROQ_MODEL", "groq/compound-mini")
+    groq_messages = [
+        {"role": "system", "content": "You are the autonomous Aegis ReAct AI Agent specialized in real-time SOC incident triage and containment."},
+        {"role": "user", "content": system_prompt}
+    ]
+    gemini_messages = [{"role": "user", "parts": [{"text": system_prompt}]}]
     
     step = 1
     
     for iteration in range(4):
-        payload = {
-            "contents": messages,
-            "generationConfig": {
-                "temperature": 0.1,
-                "maxOutputTokens": 800
-            }
-        }
-        
         try:
-            r = requests.post(url, headers=headers, json=payload, timeout=10)
-            if r.status_code != 200:
-                print(f"[Agent Core] Gemini API error: {r.status_code} - Fallback to manual.")
-                break
+            text = ""
+            if use_groq:
+                try:
+                    headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+                    payload = {
+                        "model": groq_model,
+                        "messages": groq_messages,
+                        "max_tokens": 800,
+                        "temperature": 0.1
+                    }
+                    r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=10)
+                    if r.status_code == 200:
+                        text = r.json()["choices"][0]["message"]["content"]
+                        if text and "</think>" in text:
+                            text = text.split("</think>")[-1].strip()
+                    else:
+                        print(f"[Agent Core] Groq API returned {r.status_code}, falling back to Gemini if available.")
+                        use_groq = False
+                except Exception as ge:
+                    print(f"[Agent Core] Groq call failed: {ge}")
+                    use_groq = False
+                    
+            if not text and use_gemini:
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+                    headers = {"Content-Type": "application/json"}
+                    payload = {
+                        "contents": gemini_messages,
+                        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 800}
+                    }
+                    r = requests.post(url, headers=headers, json=payload, timeout=10)
+                    if r.status_code == 200:
+                        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    else:
+                        print(f"[Agent Core] Gemini API error: {r.status_code}")
+                except Exception as me:
+                    print(f"[Agent Core] Gemini call failed: {me}")
+                    
+            if not text:
+                print("[Agent Core] LLM calls failed. Falling back to local deterministic rules.")
+                _run_deterministic_fallback(anomaly_id, mcp, db_path)
+                return
                 
-            res_json = r.json()
-            text = res_json["candidates"][0]["content"]["parts"][0]["text"]
-            
             print(f"--- Model Chunk [{iteration}] ---\n{text}\n-------------------")
             
             lines = text.split("\n")
@@ -273,7 +303,8 @@ Let's begin! First step: inspect recent events SQL with query_database tool.
                 thought_found = text[:150].replace("\n", " ") + "..."
             
             log_step(anomaly_id, step, "Thought", thought_found, db_path)
-            messages.append({"role": "model", "parts": [{"text": text}]})
+            groq_messages.append({"role": "assistant", "content": text})
+            gemini_messages.append({"role": "model", "parts": [{"text": text}]})
             
             if final_found:
                 if possible_threat:
@@ -311,7 +342,8 @@ Let's begin! First step: inspect recent events SQL with query_database tool.
                 observation = mcp.call_tool(tool_name, tool_args)
                 log_step(anomaly_id, step, "Observation", observation, db_path)
                 
-                messages.append({"role": "user", "parts": [{"text": f"Observation: {observation}"}]})
+                groq_messages.append({"role": "user", "content": f"Observation: {observation}"})
+                gemini_messages.append({"role": "user", "parts": [{"text": f"Observation: {observation}"}]})
                 step += 1
             else:
                 if "Final Response:" in text or "Final" in text:
@@ -343,11 +375,12 @@ Let's begin! First step: inspect recent events SQL with query_database tool.
                             print(f"[Agent Core] Failed pushing updated Discord alert: {alert_err}")
                     return
                     
-                messages.append({"role": "user", "parts": [{"text": "Continue with your analysis. If you have enough info, trigger mitigate_anomaly, trigger_discord_alert, and output a concise 'Final Response:'"}]})
+                groq_messages.append({"role": "user", "content": "Continue with your analysis. If you have enough info, trigger mitigate_anomaly, trigger_discord_alert, and output a concise 'Final Response:'"})
+                gemini_messages.append({"role": "user", "parts": [{"text": "Continue with your analysis. If you have enough info, trigger mitigate_anomaly, trigger_discord_alert, and output a concise 'Final Response:'"}]})
                 step += 1
                 
         except Exception as e:
-            print(f"[Agent Core] Exception in Gemini ReAct loop: {str(e)}")
+            print(f"[Agent Core] Exception in ReAct loop iteration: {str(e)}")
             break
             
     print("[Agent Core] AI loop did not resolve — engaging deterministic fallback.")

@@ -6,20 +6,48 @@
 
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { authenticateToken, requireRole, logAudit, getOrgId, maskPII } from "../auth.js";
 import {
-  loginUser, refreshTokens, logoutUser,
-  forgotPassword, resetPassword,
-  sendVerificationEmail, verifyEmail, changePassword,
+  authenticateToken,
+  requireRole,
+  logAudit,
+  getOrgId,
+  maskPII,
+} from "../auth.js";
+import {
+  loginUser,
+  refreshTokens,
+  logoutUser,
+  forgotPassword,
+  resetPassword,
+  sendVerificationEmail,
+  verifyEmail,
+  changePassword,
 } from "./auth_service.js";
 import {
-  createUser, inviteUser, listUsers, getUser, updateUser,
-  activateUser, deactivateUser, deleteUser,
-  hasPermission, getPermissions,
+  createUser,
+  inviteUser,
+  listUsers,
+  getUser,
+  updateUser,
+  activateUser,
+  deactivateUser,
+  deleteUser,
+  hasPermission,
+  getPermissions,
 } from "./user_service.js";
 import {
-  createOrganization, getOrganization, updateOrganization, listOrganizations,
+  createOrganization,
+  getOrganization,
+  updateOrganization,
+  listOrganizations,
+  selfRegisterOrganization,
 } from "./org_service.js";
+import {
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
+  rotateApiKey,
+} from "../collector/api_key_service.js";
 import type { SaasRole } from "./auth_service.js";
 
 export const saasRouter = Router();
@@ -31,7 +59,9 @@ const authLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many authentication attempts. Please try again later." },
+  message: {
+    error: "Too many authentication attempts. Please try again later.",
+  },
 });
 
 const resetLimiter = rateLimit({
@@ -39,7 +69,9 @@ const resetLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many password reset requests. Please try again later." },
+  message: {
+    error: "Too many password reset requests. Please try again later.",
+  },
 });
 
 // ─── Role mapping: existing SQLite roles → Phase 3A SaaS roles ───────────────────
@@ -76,6 +108,40 @@ saasRouter.post("/auth/login", authLimiter, async (req, res) => {
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: "Authentication failed." });
+  }
+});
+
+// POST /api/saas/auth/register  (PUBLIC — SaaS self-signup)
+saasRouter.post("/auth/register", authLimiter, async (req, res) => {
+  try {
+    const { orgName, firstName, lastName, email, password } = req.body;
+    if (!orgName || !firstName || !lastName || !email || !password) {
+      res.status(400).json({
+        error:
+          "All fields are required: orgName, firstName, lastName, email, password.",
+      });
+      return;
+    }
+    const result = await selfRegisterOrganization({
+      orgName,
+      adminFirstName: firstName,
+      adminLastName: lastName,
+      adminEmail: email,
+      adminPassword: password,
+    });
+    if (!result.success) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.status(201).json({
+      message:
+        "Organization registered successfully. Please check your email to verify your account.",
+      organization: result.organization,
+      user: result.user,
+    });
+  } catch (err: any) {
+    console.error("[SaaS] Registration error:", err);
+    res.status(500).json({ error: "Registration failed. Please try again." });
   }
 });
 
@@ -163,37 +229,52 @@ saasRouter.post("/auth/verify-email", async (req, res) => {
 });
 
 // POST /api/saas/auth/resend-verification
-saasRouter.post("/auth/resend-verification", authenticateToken, async (req, res) => {
-  try {
-    const result = await sendVerificationEmail(req.user!.id, req.ip || "");
-    if (!result.success) {
-      res.status(400).json({ error: result.error });
-      return;
+saasRouter.post(
+  "/auth/resend-verification",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const result = await sendVerificationEmail(req.user!.id, req.ip || "");
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ message: "Verification email sent." });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to send verification email." });
     }
-    res.json({ message: "Verification email sent.", token: result.token });
-  } catch (err: any) {
-    res.status(500).json({ error: "Failed to send verification email." });
-  }
-});
+  },
+);
 
 // POST /api/saas/auth/change-password
-saasRouter.post("/auth/change-password", authenticateToken, async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword) {
-      res.status(400).json({ error: "Current and new password are required." });
-      return;
+saasRouter.post(
+  "/auth/change-password",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      if (!currentPassword || !newPassword) {
+        res
+          .status(400)
+          .json({ error: "Current and new password are required." });
+        return;
+      }
+      const result = await changePassword(
+        req.user!.id,
+        currentPassword,
+        newPassword,
+        req.ip || "",
+      );
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ message: "Password changed successfully." });
+    } catch (err: any) {
+      res.status(500).json({ error: "Password change failed." });
     }
-    const result = await changePassword(req.user!.id, currentPassword, newPassword, req.ip || "");
-    if (!result.success) {
-      res.status(400).json({ error: result.error });
-      return;
-    }
-    res.json({ message: "Password changed successfully." });
-  } catch (err: any) {
-    res.status(500).json({ error: "Password change failed." });
-  }
-});
+  },
+);
 
 // ─── User Management Endpoints ────────────────────────────────────────────────────
 
@@ -201,7 +282,10 @@ saasRouter.post("/auth/change-password", authenticateToken, async (req, res) => 
 saasRouter.get("/users", authenticateToken, async (req, res) => {
   try {
     const saasRole = mapRole(req.user!.role);
-    if (!hasPermission(saasRole, "users:list") && !hasPermission(saasRole, "users:manage")) {
+    if (
+      !hasPermission(saasRole, "users:list") &&
+      !hasPermission(saasRole, "users:manage")
+    ) {
       res.status(403).json({ error: "Access denied." });
       return;
     }
@@ -227,14 +311,23 @@ saasRouter.post("/users", authenticateToken, async (req, res) => {
       res.status(403).json({ error: "Access denied." });
       return;
     }
-    const { email, password, first_name, last_name, role, organization_id } = req.body;
+    const { email, password, first_name, last_name, role, organization_id } =
+      req.body;
     if (!email || !password || !role) {
-      res.status(400).json({ error: "email, password, and role are required." });
+      res
+        .status(400)
+        .json({ error: "email, password, and role are required." });
       return;
     }
-    const orgId = req.user!.role === "super_admin" ? (organization_id || null) : req.user!.organization_id;
+    const orgId =
+      req.user!.role === "super_admin"
+        ? organization_id || null
+        : req.user!.organization_id;
     const result = await createUser({
-      email, password, first_name, last_name,
+      email,
+      password,
+      first_name,
+      last_name,
       role: role as SaasRole,
       organization_id: orgId,
     });
@@ -242,7 +335,15 @@ saasRouter.post("/users", authenticateToken, async (req, res) => {
       res.status(400).json({ error: result.error });
       return;
     }
-    await logAudit(req.user!.id, req.user!.username, "CREATE_USER", "users", `Created SaaS user: ${email}`, req.ip || "", getOrgId(req.user!));
+    await logAudit(
+      req.user!.id,
+      req.user!.username,
+      "CREATE_USER",
+      "users",
+      `Created SaaS user: ${email}`,
+      req.ip || "",
+      getOrgId(req.user!),
+    );
     res.status(201).json(result.user);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -263,7 +364,9 @@ saasRouter.post("/users/invite", authenticateToken, async (req, res) => {
       return;
     }
     const result = await inviteUser({
-      email, first_name, last_name,
+      email,
+      first_name,
+      last_name,
       role: role as SaasRole,
       organization_id: req.user!.organization_id || 1,
       invited_by: req.user!.id,
@@ -273,7 +376,7 @@ saasRouter.post("/users/invite", authenticateToken, async (req, res) => {
       res.status(400).json({ error: result.error });
       return;
     }
-    res.status(201).json({ message: "Invitation sent.", token: result.token });
+    res.status(201).json({ message: "Invitation sent." });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -289,7 +392,10 @@ saasRouter.get("/users/:id", authenticateToken, async (req, res) => {
       return;
     }
     // Tenant isolation: non-superadmin can only view users in their org
-    if (req.user!.role !== "super_admin" && user.organization_id !== req.user!.organization_id) {
+    if (
+      req.user!.role !== "super_admin" &&
+      user.organization_id !== req.user!.organization_id
+    ) {
       res.status(403).json({ error: "Access denied." });
       return;
     }
@@ -308,7 +414,12 @@ saasRouter.patch("/users/:id", authenticateToken, async (req, res) => {
       return;
     }
     const userId = parseInt(req.params.id);
-    const result = await updateUser(userId, req.body, req.user!.id, req.ip || "");
+    const result = await updateUser(
+      userId,
+      req.body,
+      req.user!.id,
+      req.ip || "",
+    );
     if (!result.success) {
       res.status(400).json({ error: result.error });
       return;
@@ -327,7 +438,11 @@ saasRouter.patch("/users/:id/activate", authenticateToken, async (req, res) => {
       res.status(403).json({ error: "Access denied." });
       return;
     }
-    const result = await activateUser(parseInt(req.params.id), req.user!.id, req.ip || "");
+    const result = await activateUser(
+      parseInt(req.params.id),
+      req.user!.id,
+      req.ip || "",
+    );
     if (!result.success) {
       res.status(400).json({ error: result.error });
       return;
@@ -339,23 +454,31 @@ saasRouter.patch("/users/:id/activate", authenticateToken, async (req, res) => {
 });
 
 // PATCH /api/saas/users/:id/deactivate
-saasRouter.patch("/users/:id/deactivate", authenticateToken, async (req, res) => {
-  try {
-    const saasRole = mapRole(req.user!.role);
-    if (!hasPermission(saasRole, "users:deactivate")) {
-      res.status(403).json({ error: "Access denied." });
-      return;
+saasRouter.patch(
+  "/users/:id/deactivate",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const saasRole = mapRole(req.user!.role);
+      if (!hasPermission(saasRole, "users:deactivate")) {
+        res.status(403).json({ error: "Access denied." });
+        return;
+      }
+      const result = await deactivateUser(
+        parseInt(req.params.id),
+        req.user!.id,
+        req.ip || "",
+      );
+      if (!result.success) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.json({ message: "User deactivated." });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
-    const result = await deactivateUser(parseInt(req.params.id), req.user!.id, req.ip || "");
-    if (!result.success) {
-      res.status(400).json({ error: result.error });
-      return;
-    }
-    res.json({ message: "User deactivated." });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  },
+);
 
 // DELETE /api/saas/users/:id
 saasRouter.delete("/users/:id", authenticateToken, async (req, res) => {
@@ -365,7 +488,11 @@ saasRouter.delete("/users/:id", authenticateToken, async (req, res) => {
       res.status(403).json({ error: "Access denied." });
       return;
     }
-    const result = await deleteUser(parseInt(req.params.id), req.user!.id, req.ip || "");
+    const result = await deleteUser(
+      parseInt(req.params.id),
+      req.user!.id,
+      req.ip || "",
+    );
     if (!result.success) {
       res.status(400).json({ error: result.error });
       return;
@@ -378,7 +505,7 @@ saasRouter.delete("/users/:id", authenticateToken, async (req, res) => {
 
 // GET /api/saas/roles
 saasRouter.get("/roles", authenticateToken, (_req, res) => {
-  const roles = Object.keys(ROLE_MAP).map(r => ({
+  const roles = Object.keys(ROLE_MAP).map((r) => ({
     key: r,
     saas_role: ROLE_MAP[r],
     permissions: getPermissions(ROLE_MAP[r]),
@@ -419,7 +546,15 @@ saasRouter.post("/organizations", authenticateToken, async (req, res) => {
       res.status(400).json({ error: result.error });
       return;
     }
-    await logAudit(req.user!.id, req.user!.username, "CREATE_ORG", "organizations", `Created org: ${name}`, req.ip || "", 1);
+    await logAudit(
+      req.user!.id,
+      req.user!.username,
+      "CREATE_ORG",
+      "organizations",
+      `Created org: ${name}`,
+      req.ip || "",
+      1,
+    );
     res.status(201).json(result.organization);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -431,7 +566,10 @@ saasRouter.get("/organizations/:id", authenticateToken, async (req, res) => {
   try {
     const orgId = parseInt(req.params.id);
     // Tenant isolation: non-superadmin can only view their own org
-    if (req.user!.role !== "super_admin" && req.user!.organization_id !== orgId) {
+    if (
+      req.user!.role !== "super_admin" &&
+      req.user!.organization_id !== orgId
+    ) {
       res.status(403).json({ error: "Access denied." });
       return;
     }
@@ -455,7 +593,10 @@ saasRouter.patch("/organizations/:id", authenticateToken, async (req, res) => {
       return;
     }
     const orgId = parseInt(req.params.id);
-    if (req.user!.role !== "super_admin" && req.user!.organization_id !== orgId) {
+    if (
+      req.user!.role !== "super_admin" &&
+      req.user!.organization_id !== orgId
+    ) {
       res.status(403).json({ error: "Access denied." });
       return;
     }
@@ -483,9 +624,10 @@ saasRouter.get("/audit-logs", authenticateToken, async (req, res) => {
     const prisma = getPrismaClient();
     const limit = parseInt(req.query.limit as string) || 100;
 
-    const where = req.user!.role === "super_admin"
-      ? {}
-      : { organization_id: req.user!.organization_id };
+    const where =
+      req.user!.role === "super_admin"
+        ? {}
+        : { organization_id: req.user!.organization_id };
 
     const logs = await prisma.auditLog.findMany({
       where,
@@ -496,6 +638,88 @@ saasRouter.get("/audit-logs", authenticateToken, async (req, res) => {
       },
     });
     res.json(logs);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── API Key Management ─────────────────────────────────────────────────────────
+
+// GET /api/saas/api-keys  — List all API keys for my org
+saasRouter.get("/api-keys", authenticateToken, async (req, res) => {
+  try {
+    const user = req.user!;
+    if (!["super_admin", "org_admin"].includes(user.role)) {
+      res.status(403).json({ error: "Admin role required." });
+      return;
+    }
+    const keys = await listApiKeys(user.organization_id!);
+    res.json(keys);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/saas/api-keys  — Create a new API key
+saasRouter.post("/api-keys", authenticateToken, async (req, res) => {
+  try {
+    const user = req.user!;
+    if (!["super_admin", "org_admin"].includes(user.role)) {
+      res.status(403).json({ error: "Admin role required." });
+      return;
+    }
+    const { name, expiresInDays } = req.body;
+    if (!name || !name.trim()) {
+      res.status(400).json({ error: "Key name is required." });
+      return;
+    }
+    const result = await createApiKey({
+      organizationId: user.organization_id!,
+      createdBy: user.id,
+      name: name.trim(),
+      expiresInDays: expiresInDays ? parseInt(expiresInDays) : undefined,
+    });
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/saas/api-keys/:id  — Revoke an API key
+saasRouter.delete("/api-keys/:id", authenticateToken, async (req, res) => {
+  try {
+    const user = req.user!;
+    if (!["super_admin", "org_admin"].includes(user.role)) {
+      res.status(403).json({ error: "Admin role required." });
+      return;
+    }
+    const keyId = parseInt(req.params.id);
+    const result = await revokeApiKey(keyId, user.organization_id!);
+    if (!result.success) {
+      res.status(404).json({ error: result.error });
+      return;
+    }
+    res.json({ message: "API key revoked successfully." });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/saas/api-keys/:id/rotate  — Rotate (regenerate) an API key
+saasRouter.post("/api-keys/:id/rotate", authenticateToken, async (req, res) => {
+  try {
+    const user = req.user!;
+    if (!["super_admin", "org_admin"].includes(user.role)) {
+      res.status(403).json({ error: "Admin role required." });
+      return;
+    }
+    const keyId = parseInt(req.params.id);
+    const result = await rotateApiKey(keyId, user.organization_id!, user.id);
+    if (!result.success) {
+      res.status(404).json({ error: result.error });
+      return;
+    }
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

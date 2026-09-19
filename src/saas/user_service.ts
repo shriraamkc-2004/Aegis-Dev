@@ -13,24 +13,26 @@ import type { SaasRole } from "./auth_service.js";
 const ROLE_PERMISSIONS: Record<SaasRole, string[]> = {
   super_admin: ["*"], // Full system access
   org_admin: [
-    "users:manage", "users:list", "users:invite", "users:activate", "users:deactivate",
-    "organization:view", "organization:update", "alerts:view", "alerts:configure",
+    "users:manage",
+    "users:list",
+    "users:invite",
+    "users:activate",
+    "users:deactivate",
+    "organization:view",
+    "organization:update",
+    "alerts:view",
+    "alerts:configure",
   ],
   soc_analyst: [
-    "alerts:investigate", "alerts:view", "copilot:use", "incidents:update",
+    "alerts:investigate",
+    "alerts:view",
+    "copilot:use",
+    "incidents:update",
   ],
-  executive_viewer: [
-    "reports:view", "reports:export", "audit_logs:view",
-  ],
-  demo_admin: [
-    "dashboard:view", "alerts:view",
-  ],
-  demo_analyst: [
-    "dashboard:view", "alerts:view",
-  ],
-  demo_viewer: [
-    "dashboard:view",
-  ],
+  executive_viewer: ["reports:view", "reports:export", "audit_logs:view"],
+  demo_admin: ["dashboard:view", "alerts:view"],
+  demo_analyst: ["dashboard:view", "alerts:view"],
+  demo_viewer: ["dashboard:view"],
 };
 
 export function hasPermission(role: SaasRole, permission: string): boolean {
@@ -71,10 +73,13 @@ export async function createUser(data: {
 
   const prisma = getPrismaClient();
 
-  const existing = await prisma.user.findUnique({ where: { email: data.email.toLowerCase().trim() } });
+  const existing = await prisma.user.findUnique({
+    where: { email: data.email.toLowerCase().trim() },
+  });
   if (existing) return { success: false, error: "Email already registered." };
 
-  if (data.password.length < 8) return { success: false, error: "Password must be at least 8 characters." };
+  if (data.password.length < 8)
+    return { success: false, error: "Password must be at least 8 characters." };
 
   const salt = bcrypt.genSaltSync(10);
   const hash = bcrypt.hashSync(data.password, salt);
@@ -91,8 +96,14 @@ export async function createUser(data: {
       is_active: true,
     } as any,
     select: {
-      id: true, email: true, first_name: true, last_name: true,
-      role: true, organization_id: true, is_active: true, email_verified: true,
+      id: true,
+      email: true,
+      first_name: true,
+      last_name: true,
+      role: true,
+      organization_id: true,
+      is_active: true,
+      email_verified: true,
       created_at: true,
     },
   });
@@ -116,7 +127,9 @@ export async function inviteUser(data: {
 
   const prisma = getPrismaClient();
 
-  const existing = await prisma.user.findUnique({ where: { email: data.email.toLowerCase().trim() } });
+  const existing = await prisma.user.findUnique({
+    where: { email: data.email.toLowerCase().trim() },
+  });
   if (existing) return { success: false, error: "Email already registered." };
 
   // Create user with a random password (they'll reset via invite link)
@@ -149,10 +162,9 @@ export async function inviteUser(data: {
     },
   });
 
-  // Dev mode: log the invite link
+  // Dev mode: log invitation notice without leaking secret token
   if (process.env.NODE_ENV !== "production") {
-    console.log(`[Invite] Invite token for ${data.email}: ${tokenRaw}`);
-    console.log(`[Invite] Invite URL: /reset-password?token=${tokenRaw}&invite=true`);
+    console.log(`[Invite] User invitation created`);
   }
 
   await prisma.auditLog.create({
@@ -165,14 +177,14 @@ export async function inviteUser(data: {
     },
   });
 
-  return { success: true, token: process.env.NODE_ENV !== "production" ? tokenRaw : undefined };
+  return { success: true };
 }
 
 // ─── List Users ───────────────────────────────────────────────────────────────────
 
 export async function listUsers(
   organizationId: number | null,
-  isSuperAdmin: boolean
+  isSuperAdmin: boolean,
 ): Promise<any[]> {
   const connected = await isPostgresConnected();
   if (!connected) return [];
@@ -182,9 +194,16 @@ export async function listUsers(
   if (isSuperAdmin) {
     return prisma.user.findMany({
       select: {
-        id: true, email: true, first_name: true, last_name: true,
-        role: true, organization_id: true, is_active: true, email_verified: true,
-        created_at: true, updated_at: true,
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        role: true,
+        organization_id: true,
+        is_active: true,
+        email_verified: true,
+        created_at: true,
+        updated_at: true,
         organization: { select: { name: true, slug: true } },
       },
       orderBy: { id: "asc" },
@@ -194,9 +213,16 @@ export async function listUsers(
   return prisma.user.findMany({
     where: { organization_id: organizationId },
     select: {
-      id: true, email: true, first_name: true, last_name: true,
-      role: true, organization_id: true, is_active: true, email_verified: true,
-      created_at: true, updated_at: true,
+      id: true,
+      email: true,
+      first_name: true,
+      last_name: true,
+      role: true,
+      organization_id: true,
+      is_active: true,
+      email_verified: true,
+      created_at: true,
+      updated_at: true,
     },
     orderBy: { id: "asc" },
   });
@@ -212,9 +238,16 @@ export async function getUser(userId: number): Promise<any | null> {
   return prisma.user.findUnique({
     where: { id: userId },
     select: {
-      id: true, email: true, first_name: true, last_name: true,
-      role: true, organization_id: true, is_active: true, email_verified: true,
-      created_at: true, updated_at: true,
+      id: true,
+      email: true,
+      first_name: true,
+      last_name: true,
+      role: true,
+      organization_id: true,
+      is_active: true,
+      email_verified: true,
+      created_at: true,
+      updated_at: true,
       organization: { select: { id: true, name: true, slug: true } },
     },
   });
@@ -231,7 +264,7 @@ export async function updateUser(
     organization_id?: number | null;
   },
   updatedBy: number,
-  ipAddress?: string
+  ipAddress?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const connected = await isPostgresConnected();
   if (!connected) return { success: false, error: "PostgreSQL unavailable." };
@@ -247,7 +280,9 @@ export async function updateUser(
       ...(data.first_name !== undefined && { first_name: data.first_name }),
       ...(data.last_name !== undefined && { last_name: data.last_name }),
       ...(data.role !== undefined && { role: data.role }),
-      ...(data.organization_id !== undefined && { organization_id: data.organization_id }),
+      ...(data.organization_id !== undefined && {
+        organization_id: data.organization_id,
+      }),
     } as any,
   });
 
@@ -269,7 +304,7 @@ export async function updateUser(
 export async function activateUser(
   userId: number,
   activatedBy: number,
-  ipAddress?: string
+  ipAddress?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const connected = await isPostgresConnected();
   if (!connected) return { success: false, error: "PostgreSQL unavailable." };
@@ -277,7 +312,8 @@ export async function activateUser(
   const prisma = getPrismaClient();
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { success: false, error: "User not found." };
-  if (user.is_active) return { success: false, error: "User is already active." };
+  if (user.is_active)
+    return { success: false, error: "User is already active." };
 
   await prisma.user.update({
     where: { id: userId },
@@ -302,7 +338,7 @@ export async function activateUser(
 export async function deactivateUser(
   userId: number,
   deactivatedBy: number,
-  ipAddress?: string
+  ipAddress?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const connected = await isPostgresConnected();
   if (!connected) return { success: false, error: "PostgreSQL unavailable." };
@@ -310,8 +346,10 @@ export async function deactivateUser(
   const prisma = getPrismaClient();
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { success: false, error: "User not found." };
-  if (!user.is_active) return { success: false, error: "User is already deactivated." };
-  if (user.role === "super_admin") return { success: false, error: "Cannot deactivate a SuperAdmin." };
+  if (!user.is_active)
+    return { success: false, error: "User is already deactivated." };
+  if (user.role === "super_admin")
+    return { success: false, error: "Cannot deactivate a SuperAdmin." };
 
   await prisma.user.update({
     where: { id: userId },
@@ -339,7 +377,7 @@ export async function deactivateUser(
 export async function deleteUser(
   userId: number,
   deletedBy: number,
-  ipAddress?: string
+  ipAddress?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const connected = await isPostgresConnected();
   if (!connected) return { success: false, error: "PostgreSQL unavailable." };
@@ -347,7 +385,8 @@ export async function deleteUser(
   const prisma = getPrismaClient();
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { success: false, error: "User not found." };
-  if (user.role === "super_admin") return { success: false, error: "Cannot delete a SuperAdmin." };
+  if (user.role === "super_admin")
+    return { success: false, error: "Cannot delete a SuperAdmin." };
 
   // Soft delete: deactivate + anonymize email
   await prisma.user.update({
@@ -364,7 +403,9 @@ export async function deleteUser(
   // Invalidate all tokens
   await prisma.refreshToken.deleteMany({ where: { user_id: userId } });
   await prisma.passwordResetToken.deleteMany({ where: { user_id: userId } });
-  await prisma.emailVerificationToken.deleteMany({ where: { user_id: userId } });
+  await prisma.emailVerificationToken.deleteMany({
+    where: { user_id: userId },
+  });
 
   await prisma.auditLog.create({
     data: {

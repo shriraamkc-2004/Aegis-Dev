@@ -1,43 +1,46 @@
 /**
- * Aegis Enterprise - Redis Caching Utility
- * Provides helpers to cache high-frequency query results.
+ * Aegis Enterprise — In-Memory High-Performance Cache Utility
+ * Provides TTL-aware caching for high-frequency query results.
  */
-import redis from './client.js';
 
-export async function getCached<T>(key: string): Promise<T | null> {
-  try {
-    const data = await redis.get(key);
-    if (!data) return null;
-    return JSON.parse(data);
-  } catch (err) {
-    console.error(`[Redis Cache] GET error for key ${key}:`, err);
-    return null;
-  }
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
 }
 
-export async function setCached<T>(key: string, value: T, ttlSeconds = 30): Promise<void> {
-  try {
-    await redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
-  } catch (err) {
-    console.error(`[Redis Cache] SET error for key ${key}:`, err);
+const memoryStore = new Map<string, CacheEntry<any>>();
+
+export async function getCached<T>(key: string): Promise<T | null> {
+  const entry = memoryStore.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    memoryStore.delete(key);
+    return null;
   }
+  return entry.value;
+}
+
+export async function setCached<T>(
+  key: string,
+  value: T,
+  ttlSeconds = 30,
+): Promise<void> {
+  memoryStore.set(key, {
+    value,
+    expiresAt: Date.now() + ttlSeconds * 1000,
+  });
 }
 
 export async function invalidateCache(key: string): Promise<void> {
-  try {
-    await redis.del(key);
-  } catch (err) {
-    console.error(`[Redis Cache] DEL error for key ${key}:`, err);
-  }
+  memoryStore.delete(key);
 }
 
 export async function invalidatePattern(pattern: string): Promise<void> {
-  try {
-    const keys = await redis.keys(pattern);
-    if (keys.length > 0) {
-      await redis.del(...keys);
+  const regexStr = pattern.replace(/\*/g, ".*");
+  const regex = new RegExp(`^${regexStr}$`);
+  for (const key of memoryStore.keys()) {
+    if (regex.test(key)) {
+      memoryStore.delete(key);
     }
-  } catch (err) {
-    console.error(`[Redis Cache] Pattern DEL error for pattern ${pattern}:`, err);
   }
 }

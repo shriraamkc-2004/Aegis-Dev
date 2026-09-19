@@ -223,7 +223,39 @@ class ChatEngine:
     # ─── Gemini Call ─────────────────────────────────────────────────────────────
 
     def _call_gemini(self, system_prompt: str, user_message: str) -> str:
-        """Call Gemini for response generation with exponential retries and fallbacks."""
+        """Call Groq or Gemini for response generation with exponential retries and fallbacks."""
+        # 1. Primary: Try Groq if configured (sub-second LPU inference, no 429 quota exhaustion)
+        groq_key = os.getenv("GROQ_API_KEY", "")
+        if groq_key and groq_key.strip() and not groq_key.startswith("YOUR_"):
+            try:
+                import requests
+                groq_model = os.getenv("GROQ_MODEL", "groq/compound-mini")
+                headers = {
+                    "Authorization": f"Bearer {groq_key.strip()}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "model": groq_model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message}
+                    ],
+                    "max_tokens": RAI_MAX_RESPONSE_TOKENS,
+                    "temperature": RAI_TEMPERATURE
+                }
+                r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=8)
+                if r.status_code == 200:
+                    data = r.json()
+                    text = data["choices"][0]["message"]["content"]
+                    if text:
+                        if "</think>" in text:
+                            text = text.split("</think>")[-1].strip()
+                        return text
+                else:
+                    logger.warning("Groq call returned %d: %s. Falling back to Gemini.", r.status_code, r.text)
+            except Exception as ge:
+                logger.warning("Groq call failed: %s. Falling back to Gemini.", ge)
+
         if not self._gemini_client:
             return self._fallback_response(user_message)
 

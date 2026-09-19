@@ -61,7 +61,10 @@ export function generateRefreshToken(user: AuthUser): string {
   );
 }
 
-import redis from "./redis/client.js";
+import crypto from "crypto";
+
+// In-memory token blacklist
+const tokenBlacklist = new Set<string>();
 
 // Verify refresh token
 export function verifyRefreshToken(token: string): AuthUser | null {
@@ -74,29 +77,19 @@ export function verifyRefreshToken(token: string): AuthUser | null {
   }
 }
 
-// Check if refresh token is blacklisted/revoked in Redis
+// Check if refresh token is blacklisted/revoked
 export async function isRefreshTokenRevoked(token: string): Promise<boolean> {
-  try {
-    const hash = crypto.createHash("sha256").update(token).digest("hex");
-    const val = await redis.get(`blacklist:${hash}`);
-    return val === "true";
-  } catch (err) {
-    console.warn("[Auth SDK] Redis blacklist query failure:", err);
-    return false;
-  }
+  const hash = crypto.createHash("sha256").update(token).digest("hex");
+  return tokenBlacklist.has(hash);
 }
 
-// Revoke a refresh token in Redis
+// Revoke a refresh token
 export async function revokeRefreshToken(
   token: string,
-  expirySeconds: number = 7 * 24 * 3600,
+  _expirySeconds: number = 7 * 24 * 3600,
 ): Promise<void> {
-  try {
-    const hash = crypto.createHash("sha256").update(token).digest("hex");
-    await redis.set(`blacklist:${hash}`, "true", "EX", expirySeconds);
-  } catch (err) {
-    console.warn("[Auth SDK] Redis blacklist insert failure:", err);
-  }
+  const hash = crypto.createHash("sha256").update(token).digest("hex");
+  tokenBlacklist.add(hash);
 }
 
 // Verify JWT token and return decoded user (for non-middleware use)
@@ -141,19 +134,48 @@ export function requireRole(...allowedRoles: string[]) {
       res.status(401).json({ error: "Authentication required." });
       return;
     }
-    if (!allowedRoles.includes(req.user.role)) {
-      res
-        .status(403)
-        .json({
-          error: `Access denied. Required role: ${allowedRoles.join(" or ")}`,
-        });
-      return;
+
+    // Check direct role match
+    if (allowedRoles.includes(req.user.role)) {
+      return next();
     }
-    next();
+
+    // Role hierarchy mapping for demo mode users:
+    // demo_admin satisfies super_admin, org_admin, soc_analyst, executive_viewer
+    // demo_analyst satisfies soc_analyst, executive_viewer
+    // demo_viewer satisfies executive_viewer
+    const userRole = req.user.role;
+    if (userRole === "demo_admin") {
+      if (
+        allowedRoles.includes("super_admin") ||
+        allowedRoles.includes("org_admin") ||
+        allowedRoles.includes("soc_analyst") ||
+        allowedRoles.includes("executive_viewer")
+      ) {
+        return next();
+      }
+    } else if (userRole === "demo_analyst") {
+      if (
+        allowedRoles.includes("soc_analyst") ||
+        allowedRoles.includes("executive_viewer")
+      ) {
+        return next();
+      }
+    } else if (userRole === "demo_viewer") {
+      if (allowedRoles.includes("executive_viewer")) {
+        return next();
+      }
+    }
+
+    res.status(403).json({
+      error: `Access denied. Required role: ${allowedRoles.join(" or ")}`,
+    });
   };
 }
 
-// Audit logging helper
+import { getPrismaClient, isPostgresConnected } from "./saas/prisma_client.js";
+
+// Audit logging helper — dual write: PostgreSQL Prisma (Primary) with SQLite fallback
 export async function logAudit(
   userId: number | null,
   username: string,
@@ -163,6 +185,26 @@ export async function logAudit(
   ipAddress: string = "",
   organizationId: number = 1,
 ): Promise<void> {
+  try {
+    const connected = await isPostgresConnected();
+    if (connected) {
+      const prisma = getPrismaClient();
+      await prisma.auditLog.create({
+        data: {
+          user_id: userId,
+          organization_id: organizationId,
+          action,
+          resource,
+          details,
+          ip_address: ipAddress,
+        },
+      });
+      return;
+    }
+  } catch {
+    // Failover to SQLite
+  }
+
   try {
     await dbRun(
       "INSERT INTO audit_logs (user_id, username, action, resource, details, ip_address, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -263,8 +305,6 @@ export function requireOrgMode(
  * PII masking is applied during presentation and external exposure only.
  * Operational SOC telemetry remains unencrypted and unmasked internally to preserve detection accuracy and forensic integrity.
  */
-import crypto from "crypto";
-
 const ENCRYPTION_KEY =
   process.env.ENCRYPTION_KEY || "aegis-super-secret-key-32bytes-long!!"; // Should be 32 bytes
 const IV_LENGTH = 16;

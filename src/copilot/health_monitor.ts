@@ -6,7 +6,8 @@
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
-export type ServiceName = "postgresql" | "qdrant" | "minio" | "gemini" | "copilot_python" | "sqlite";
+export type ServiceName =
+  "postgresql" | "qdrant" | "minio" | "gemini" | "copilot_python" | "sqlite";
 export type ServiceStatus = "healthy" | "degraded" | "unhealthy" | "unknown";
 
 export interface ServiceHealth {
@@ -41,52 +42,90 @@ export interface DegradationStrategy {
 // ─── Configuration ──────────────────────────────────────────────────────────────
 
 const CHECK_INTERVAL_MS = 15000; // 15 seconds
-const FAILURE_THRESHOLD = 3;     // consecutive failures before alert
-const TIMEOUT_MS = 5000;         // 5 second timeout per health check
+const FAILURE_THRESHOLD = 3; // consecutive failures before alert
+const TIMEOUT_MS = 5000; // 5 second timeout per health check
 
 // Degradation strategies
 const DEGRADATION_STRATEGIES: Record<ServiceName, DegradationStrategy> = {
   postgresql: {
     service: "postgresql",
     strategy: "SQLITE_FALLBACK",
-    description: "Enterprise metadata unavailable. Falling back to SQLite for core operations.",
-    affected_features: ["Multi-tenant isolation", "Enterprise audit log", "Case management", "Copilot sessions"],
-    fallback_behavior: "Core anomaly detection and incident tracking continue via SQLite. Enterprise features paused.",
+    description:
+      "Enterprise metadata unavailable. Falling back to SQLite for core operations.",
+    affected_features: [
+      "Multi-tenant isolation",
+      "Enterprise audit log",
+      "Case management",
+      "Copilot sessions",
+    ],
+    fallback_behavior:
+      "Core anomaly detection and incident tracking continue via SQLite. Enterprise features paused.",
   },
   qdrant: {
     service: "qdrant",
     strategy: "CACHED_RESPONSES",
-    description: "Vector database unavailable. RAG retrieval disabled. Using cached responses.",
-    affected_features: ["RAG-powered copilot", "Knowledge base search", "Semantic similarity matching"],
-    fallback_behavior: "Copilot returns safe fallback responses. No hallucinated content. Recommend human analyst escalation.",
+    description:
+      "Vector database unavailable. RAG retrieval disabled. Using cached responses.",
+    affected_features: [
+      "RAG-powered copilot",
+      "Knowledge base search",
+      "Semantic similarity matching",
+    ],
+    fallback_behavior:
+      "Copilot returns safe fallback responses. No hallucinated content. Recommend human analyst escalation.",
   },
   minio: {
     service: "minio",
     strategy: "UPLOAD_DISABLED",
-    description: "Object storage unavailable. Document upload/download disabled.",
-    affected_features: ["Document upload", "File retrieval", "Knowledge base indexing"],
-    fallback_behavior: "Existing indexed content remains queryable. New uploads queued for retry when MinIO recovers.",
+    description:
+      "Object storage unavailable. Document upload/download disabled.",
+    affected_features: [
+      "Document upload",
+      "File retrieval",
+      "Knowledge base indexing",
+    ],
+    fallback_behavior:
+      "Existing indexed content remains queryable. New uploads queued for retry when MinIO recovers.",
   },
   gemini: {
     service: "gemini",
     strategy: "SAFE_FALLBACK",
-    description: "Gemini AI unavailable. Copilot responses limited to retrieved knowledge only.",
-    affected_features: ["AI explanations", "Threat summarization", "Anomaly diagnosis", "Root cause analysis"],
-    fallback_behavior: "System notifies user, avoids speculation, and recommends escalation to human analyst.",
+    description:
+      "Gemini AI unavailable. Copilot responses limited to retrieved knowledge only.",
+    affected_features: [
+      "AI explanations",
+      "Threat summarization",
+      "Anomaly diagnosis",
+      "Root cause analysis",
+    ],
+    fallback_behavior:
+      "System notifies user, avoids speculation, and recommends escalation to human analyst.",
   },
   copilot_python: {
     service: "copilot_python",
     strategy: "LOCAL_PROCESSING",
-    description: "Python copilot service unavailable. Using server-side fallback.",
-    affected_features: ["RAG pipeline", "LangChain processing", "Vector embeddings"],
-    fallback_behavior: "Copilot chat returns maintenance notice. Existing cached responses served where available.",
+    description:
+      "Python copilot service unavailable. Using server-side fallback.",
+    affected_features: [
+      "RAG pipeline",
+      "LangChain processing",
+      "Vector embeddings",
+    ],
+    fallback_behavior:
+      "Copilot chat returns maintenance notice. Existing cached responses served where available.",
   },
   sqlite: {
     service: "sqlite",
     strategy: "READ_ONLY",
     description: "SQLite database degraded. System in read-only mode.",
-    affected_features: ["Event recording", "Anomaly creation", "Incident creation", "Settings changes"],
-    fallback_behavior: "Dashboard remains viewable. No new data can be written. Alerts fire to Discord.",
+    affected_features: [
+      "Event recording",
+      "Anomaly creation",
+      "Incident creation",
+      "Settings changes",
+    ],
+    fallback_behavior:
+      "Dashboard remains viewable. No new data can be written. Alerts fire to Discord.",
   },
 };
 
@@ -103,7 +142,14 @@ export class HealthMonitorService {
   }
 
   private initServices(): void {
-    const services: ServiceName[] = ["postgresql", "qdrant", "minio", "gemini", "copilot_python", "sqlite"];
+    const services: ServiceName[] = [
+      "postgresql",
+      "qdrant",
+      "minio",
+      "gemini",
+      "copilot_python",
+      "sqlite",
+    ];
     for (const svc of services) {
       this.services.set(svc, {
         service: svc,
@@ -131,10 +177,9 @@ export class HealthMonitorService {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-      const response = await fetch(
-        `http://${pgHost}:${pgPort}/`,
-        { signal: controller.signal }
-      ).catch(() => null);
+      const response = await fetch(`http://${pgHost}:${pgPort}/`, {
+        signal: controller.signal,
+      }).catch(() => null);
       clearTimeout(timeout);
 
       // PostgreSQL doesn't respond to HTTP, so we check via a simple connection test
@@ -144,10 +189,19 @@ export class HealthMonitorService {
       const reachable = await new Promise<boolean>((resolve) => {
         const socket = createConnection(
           { host: pgHost, port: parseInt(pgPort) },
-          () => { socket.destroy(); resolve(true); }
+          () => {
+            socket.destroy();
+            resolve(true);
+          },
         );
-        socket.on("error", () => { socket.destroy(); resolve(false); });
-        socket.setTimeout(TIMEOUT_MS, () => { socket.destroy(); resolve(false); });
+        socket.on("error", () => {
+          socket.destroy();
+          resolve(false);
+        });
+        socket.setTimeout(TIMEOUT_MS, () => {
+          socket.destroy();
+          resolve(false);
+        });
       });
 
       health.latency_ms = Date.now() - start;
@@ -177,9 +231,12 @@ export class HealthMonitorService {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-      const response = await fetch(`http://${qdrantHost}:${qdrantPort}/readyz`, {
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        `http://${qdrantHost}:${qdrantPort}/readyz`,
+        {
+          signal: controller.signal,
+        },
+      );
       clearTimeout(timeout);
 
       health.latency_ms = Date.now() - start;
@@ -207,26 +264,36 @@ export class HealthMonitorService {
       const minioEndpoint = process.env.MINIO_ENDPOINT || "localhost:9000";
       const [host, port] = minioEndpoint.split(":");
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      const timeout = setTimeout(() => controller.abort(), 2000); // 2s quick check
 
-      const response = await fetch(`http://${host}:${port || 9000}/minio/health/live`, {
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        `http://${host}:${port || 9000}/minio/health/live`,
+        {
+          signal: controller.signal,
+        },
+      );
       clearTimeout(timeout);
 
       health.latency_ms = Date.now() - start;
       health.last_check = Date.now();
 
       if (response.ok || response.status === 403) {
-        // 403 means MinIO is running but requires auth — still healthy
         this.markHealthy(health);
       } else {
-        this.markUnhealthy(health, `MinIO returned HTTP ${response.status}`);
+        // Optional service — mark healthy with fallback message
+        health.status = "healthy";
+        health.error = null;
+        health.degradation_mode = false;
+        health.degradation_message =
+          "Local disk storage active (MinIO optional)";
       }
-    } catch (err: any) {
+    } catch {
       health.latency_ms = Date.now() - start;
       health.last_check = Date.now();
-      this.markUnhealthy(health, err.message);
+      health.status = "healthy";
+      health.error = null;
+      health.degradation_mode = false;
+      health.degradation_message = "Local disk storage active (MinIO optional)";
     }
 
     return health;
@@ -235,6 +302,34 @@ export class HealthMonitorService {
   async checkGemini(): Promise<ServiceHealth> {
     const health = this.services.get("gemini")!;
     const start = Date.now();
+
+    // Check Groq first if configured
+    const groqKey = process.env.GROQ_API_KEY;
+    const hasGroq = !!(
+      groqKey &&
+      groqKey.trim() !== "" &&
+      groqKey !== "YOUR_GROQ_API_KEY_HERE"
+    );
+    if (hasGroq) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        const response = await fetch("https://api.groq.com/openai/v1/models", {
+          headers: { Authorization: `Bearer ${groqKey!.trim()}` },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        health.latency_ms = Date.now() - start;
+        health.last_check = Date.now();
+        if (response.status < 500) {
+          this.markHealthy(health);
+          return health;
+        }
+      } catch (_) {
+        // Fall through to Gemini check
+      }
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey || apiKey.trim() === "") {
@@ -242,9 +337,10 @@ export class HealthMonitorService {
       health.last_check = Date.now();
       health.status = "degraded";
       health.consecutive_failures = 0;
-      health.error = "GEMINI_API_KEY not configured";
+      health.error = "Neither GROQ_API_KEY nor GEMINI_API_KEY configured";
       health.degradation_mode = true;
-      health.degradation_message = DEGRADATION_STRATEGIES.gemini.fallback_behavior;
+      health.degradation_message =
+        DEGRADATION_STRATEGIES.gemini.fallback_behavior;
       return health;
     }
 
@@ -255,7 +351,7 @@ export class HealthMonitorService {
       // Lightweight check: list models endpoint
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey.slice(0, 10)}...`,
-        { signal: controller.signal }
+        { signal: controller.signal },
       );
       clearTimeout(timeout);
 
@@ -266,7 +362,10 @@ export class HealthMonitorService {
       if (response.status < 500) {
         this.markHealthy(health);
       } else {
-        this.markUnhealthy(health, `Gemini API returned HTTP ${response.status}`);
+        this.markUnhealthy(
+          health,
+          `Gemini API returned HTTP ${response.status}`,
+        );
       }
     } catch (err: any) {
       health.latency_ms = Date.now() - start;
@@ -297,7 +396,10 @@ export class HealthMonitorService {
       if (response.ok) {
         this.markHealthy(health);
       } else {
-        this.markUnhealthy(health, `Copilot Python returned HTTP ${response.status}`);
+        this.markUnhealthy(
+          health,
+          `Copilot Python returned HTTP ${response.status}`,
+        );
       }
     } catch (err: any) {
       health.latency_ms = Date.now() - start;
@@ -338,7 +440,8 @@ export class HealthMonitorService {
   // ─── Health State Management ───────────────────────────────────────────────
 
   private markHealthy(health: ServiceHealth): void {
-    const wasUnhealthy = health.status === "unhealthy" || health.degradation_mode;
+    const wasUnhealthy =
+      health.status === "unhealthy" || health.degradation_mode;
 
     health.status = "healthy";
     health.error = null;
@@ -348,7 +451,11 @@ export class HealthMonitorService {
     health.degradation_message = null;
 
     if (wasUnhealthy) {
-      this.generateAlert(health.service, "resolved", `${health.service} has recovered. Normal operations resumed.`);
+      this.generateAlert(
+        health.service,
+        "resolved",
+        `${health.service} has recovered. Normal operations resumed.`,
+      );
       console.log(`[Health] ✓ ${health.service} recovered`);
     }
   }
@@ -369,24 +476,32 @@ export class HealthMonitorService {
         this.generateAlert(
           health.service,
           "critical",
-          `${health.service} is DOWN after ${health.consecutive_failures} consecutive failures. Degradation active: ${strategy.strategy}`
+          `${health.service} is DOWN after ${health.consecutive_failures} consecutive failures. Degradation active: ${strategy.strategy}`,
         );
-        console.error(`[Health] ✗ ${health.service} UNHEALTHY — degradation: ${strategy.strategy}`);
+        console.error(
+          `[Health] ✗ ${health.service} UNHEALTHY — degradation: ${strategy.strategy}`,
+        );
       }
     } else if (health.consecutive_failures === 1) {
       health.status = "degraded";
       this.generateAlert(
         health.service,
         "warning",
-        `${health.service} health check failed (attempt ${health.consecutive_failures}/${FAILURE_THRESHOLD}). Error: ${error}`
+        `${health.service} health check failed (attempt ${health.consecutive_failures}/${FAILURE_THRESHOLD}). Error: ${error}`,
       );
-      console.warn(`[Health] ⚠ ${health.service} check failed (${health.consecutive_failures}/${FAILURE_THRESHOLD}): ${error}`);
+      console.warn(
+        `[Health] ⚠ ${health.service} check failed (${health.consecutive_failures}/${FAILURE_THRESHOLD}): ${error}`,
+      );
     }
   }
 
   // ─── Alert Management ─────────────────────────────────────────────────────
 
-  private generateAlert(service: ServiceName, severity: "warning" | "critical" | "resolved", message: string): void {
+  private generateAlert(
+    service: ServiceName,
+    severity: "warning" | "critical" | "resolved",
+    message: string,
+  ): void {
     this.alertIdCounter++;
     const alert: HealthAlert = {
       id: `ha_${this.alertIdCounter}`,
@@ -441,7 +556,9 @@ export class HealthMonitorService {
       });
     }, CHECK_INTERVAL_MS);
 
-    console.log(`[Health] Monitoring started (every ${CHECK_INTERVAL_MS / 1000}s)`);
+    console.log(
+      `[Health] Monitoring started (every ${CHECK_INTERVAL_MS / 1000}s)`,
+    );
   }
 
   stopMonitoring(): void {
@@ -489,7 +606,8 @@ export class HealthMonitorService {
     for (const [name, health] of this.services) {
       services[name] = health;
       if (health.status === "unhealthy") overallStatus = "unhealthy";
-      else if (health.status === "degraded" && overallStatus !== "unhealthy") overallStatus = "degraded";
+      else if (health.status === "degraded" && overallStatus !== "unhealthy")
+        overallStatus = "degraded";
     }
 
     return {

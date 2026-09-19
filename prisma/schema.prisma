@@ -30,9 +30,11 @@ model Organization {
   audit_logs          AuditLog[]
   connectors          Connector[]
   chat_sessions       ChatSession[]
+  alert_channels      AlertChannel[]
 
   @@map("organizations")
 }
+
 
 // ─── Users ─────────────────────────────────────────────────────────────────────
 
@@ -92,14 +94,18 @@ model TelemetryEvent {
   id              BigInt   @id @default(autoincrement())
   organization_id Int
   event_type      String   @db.VarChar(100)
-  source          String   @db.VarChar(255)
+  source          String   @db.VarChar(255)  @default("unknown")
+  severity        String   @db.VarChar(20)   @default("info")
+  category        String   @db.VarChar(30)   @default("unknown")
+  message         String?  @db.Text
   timestamp       DateTime @db.Timestamptz
   raw_data        Json?
-  created_at      DateTime @default(now())
+  ingested_at     DateTime @default(now())
 
   organization    Organization @relation(fields: [organization_id], references: [id])
 
   @@index([organization_id, timestamp])
+  @@index([organization_id, severity])
   @@index([timestamp])
   @@map("telemetry_events")
 }
@@ -280,3 +286,39 @@ model ChatMessage {
   @@index([created_at])
   @@map("chat_messages")
 }
+
+// ─── API Keys (Machine-to-Machine Ingestion Auth) ──────────────────────────────
+
+model ApiKey {
+  id              Int      @id @default(autoincrement())
+  organization_id Int
+  name            String   @db.VarChar(255)
+  key_prefix      String   @db.VarChar(20)   // First chars shown in UI (never the secret)
+  key_hash        String   @unique @db.VarChar(64) // SHA-256 of the raw key
+  created_by      Int
+  last_used_at    DateTime?
+  expires_at      DateTime? @db.Timestamptz
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+
+  @@index([organization_id])
+  @@index([key_hash])
+  @@map("api_keys")
+}
+
+// ─── Alert Channels (Multi-Channel Notification Config) ─────────────────────────
+
+model AlertChannel {
+  id              Int      @id @default(autoincrement())
+  organization_id Int
+  name            String   @db.VarChar(255)
+  type            String   @db.VarChar(50)  // email, slack, discord, pagerduty, webhook
+  is_enabled      Boolean  @default(true)
+  config          Json
+  created_at      DateTime @default(now())
+
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("alert_channels")
+}

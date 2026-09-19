@@ -236,6 +236,7 @@ export class AIOrchestrator {
     let tokensIn = 0;
     let tokensOut = 0;
     let llmOutcome: AIOutcome = "DELIVERED";
+    let modelUsed = request.model_override ?? DEFAULT_MODEL;
 
     try {
       const llmResult = await this.callLLMWithTimeout(
@@ -245,6 +246,7 @@ export class AIOrchestrator {
       rawResponse = llmResult.text;
       tokensIn = llmResult.tokensIn;
       tokensOut = llmResult.tokensOut;
+      modelUsed = llmResult.modelUsed;
       aiCircuitBreaker.recordSuccess();
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -317,7 +319,7 @@ export class AIOrchestrator {
       truth_badge: truthResult.badge,
       confidence_level: confidenceResult.level,
       safe_fallback_used: false,
-      model_used: request.model_override ?? DEFAULT_MODEL,
+      model_used: modelUsed,
       latency_ms: latencyMs,
       tokens_input: tokensIn,
       tokens_output: tokensOut,
@@ -407,13 +409,83 @@ export class AIOrchestrator {
   private async callLLMWithTimeout(
     prompt: string,
     modelOverride?: string,
-  ): Promise<{ text: string; tokensIn: number; tokensOut: number }> {
-    // Dynamic import — uses @google/genai (project standard)
-    const { GoogleGenAI } = await import("@google/genai");
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+  ): Promise<{
+    text: string;
+    modelUsed: string;
+    tokensIn: number;
+    tokensOut: number;
+  }> {
+    const groqKey = process.env.GROQ_API_KEY;
+    const hasGroq = !!(
+      groqKey &&
+      groqKey.trim() !== "" &&
+      groqKey !== "YOUR_GROQ_API_KEY_HERE"
+    );
 
-    const genAI = new GoogleGenAI({ apiKey });
+    if (hasGroq) {
+      const groqModel =
+        modelOverride || process.env.GROQ_MODEL || "groq/compound-mini";
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+        const res = await fetch(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${groqKey!.trim()}`,
+              "Content-Type": "application/json",
+              "User-Agent": "Aegis-SOC/1.0",
+            },
+            body: JSON.stringify({
+              model: groqModel,
+              messages: [{ role: "user", content: prompt }],
+              max_tokens: MAX_OUTPUT_TOKENS,
+              temperature: 0.2,
+            }),
+            signal: controller.signal,
+          },
+        );
+        clearTimeout(timeout);
+
+        if (res.ok) {
+          const data = (await res.json()) as any;
+          let text = data.choices?.[0]?.message?.content ?? "";
+          if (text.includes("</think>")) {
+            text = text.substring(text.indexOf("</think>") + 8).trim();
+          }
+          const usage = data.usage ?? {};
+          return {
+            text,
+            modelUsed: `groq/${groqModel}`,
+            tokensIn: usage.prompt_tokens ?? Math.ceil(prompt.length / 4),
+            tokensOut: usage.completion_tokens ?? Math.ceil(text.length / 4),
+          };
+        } else {
+          const errText = await res.text().catch(() => "");
+          console.warn(
+            `[Copilot AI] Groq API returned ${res.status}: ${errText}. Falling back to Gemini.`,
+          );
+        }
+      } catch (err: any) {
+        console.warn(
+          `[Copilot AI] Groq call failed: ${err.message}. Falling back to Gemini.`,
+        );
+      }
+    }
+
+    // Fallback: Gemini API
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (
+      !geminiKey ||
+      geminiKey.trim() === "" ||
+      geminiKey === "YOUR_GEMINI_API_KEY_HERE"
+    ) {
+      throw new Error("Neither GROQ_API_KEY nor GEMINI_API_KEY is configured.");
+    }
+
+    const { GoogleGenAI } = await import("@google/genai");
+    const genAI = new GoogleGenAI({ apiKey: geminiKey });
     const modelId = modelOverride ?? DEFAULT_MODEL;
 
     const timeoutPromise = new Promise<never>((_, reject) =>
@@ -429,12 +501,16 @@ export class AIOrchestrator {
       config: { maxOutputTokens: MAX_OUTPUT_TOKENS },
     });
     const result = await Promise.race([callPromise, timeoutPromise]);
-    const text = result.text ?? "";
+    let text = result.text ?? "";
+    if (text.includes("</think>")) {
+      text = text.substring(text.indexOf("</think>") + 8).trim();
+    }
 
     // Token usage — Gemini API provides usage metadata
     const usage = (result as any).usageMetadata ?? {};
     return {
       text,
+      modelUsed: `gemini/${modelId}`,
       tokensIn: usage.promptTokenCount ?? Math.ceil(prompt.length / 4),
       tokensOut: usage.candidatesTokenCount ?? Math.ceil(text.length / 4),
     };

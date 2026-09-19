@@ -22,3 +22,4 @@ storage/backups/
 *.db-shm
 *.db-wal
 *.sqlite
+.playwright-mcp/

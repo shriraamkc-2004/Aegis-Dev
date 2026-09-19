@@ -27,7 +27,11 @@ export function getPrismaClient(): PrismaClient {
     const connStr = buildDatabaseUrl();
     const maskedConnStr = connStr.replace(/:([^:@]+)@/, ":[REDACTED]@");
     console.log("PRISMA CLIENT: Connecting to", maskedConnStr);
-    const pool = new pg.Pool({ connectionString: connStr });
+    const pool = new pg.Pool({
+      connectionString: connStr,
+      connectionTimeoutMillis: 2000, // Fail fast if PG is offline
+    });
+
     const adapter = new PrismaPg(pool);
     console.log(
       "PRISMA CLIENT: Created adapter:",
