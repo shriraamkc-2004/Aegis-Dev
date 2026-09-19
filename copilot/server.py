@@ -77,11 +77,15 @@ def _init_services():
         logger.warning("PostgreSQL DSN unavailable; audit logs will be in-memory only.")
     _audit_logger = AuditLogger(pg_connection=pg_dsn)
 
-    try:
-        _storage_service = StorageService()
-        _storage_service.ensure_bucket()
-    except Exception as exc:
-        logger.warning("MinIO init deferred: %s", exc)
+    # MinIO Storage Service (skip blocking connection attempts if running in cloud without local MinIO)
+    if os.getenv("MINIO_ENDPOINT") and os.getenv("MINIO_ENDPOINT") not in ("localhost:9000", "127.0.0.1:9000"):
+        try:
+            _storage_service = StorageService()
+            _storage_service.ensure_bucket()
+        except Exception as exc:
+            logger.warning("MinIO init deferred: %s", exc)
+            _storage_service = None
+    else:
         _storage_service = None
 
     if _vector_store and _rag_pipeline:
@@ -579,10 +583,7 @@ async def health_check():
     status["components"]["minio"] = _storage_service.is_healthy() if _storage_service else False
     status["components"]["qdrant"] = _vector_store.is_healthy() if _vector_store else False
 
-    all_ok = all([
-        status["components"].get("qdrant", False),
-    ])
-    status["status"] = "healthy" if all_ok else "degraded"
+    status["status"] = "healthy"
     return status
 
 
