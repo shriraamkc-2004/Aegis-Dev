@@ -15,10 +15,10 @@
     "pm2:logs": "pm2 logs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "jest --config jest.config.ts",
-    "test:unit": "jest --config jest.config.ts",
+    "test": "jest --config jest.config.cjs",
+    "test:unit": "jest --config jest.config.cjs",
     "postinstall": "prisma generate",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

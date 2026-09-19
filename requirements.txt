@@ -2,22 +2,22 @@
 # Core
 requests>=2.31.0
 python-dotenv>=1.0.0
-streamlit>=1.30.0
 pandas>=2.1.0
 
 # Enterprise Copilot — RAG / LLM / Vector Store
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
+google-genai>=0.1.0
 langchain>=0.2.0
 langchain-google-genai>=1.0.0
 langchain-community>=0.2.0
 langchain-text-splitters>=0.2.0
 qdrant-client>=1.9.0
-sentence-transformers>=2.7.0
 minio>=7.2.0
 psycopg2-binary>=2.9.9
 python-multipart>=0.0.9
 pydantic>=2.7.0
+
 # Document loaders (Phase 3B)
 python-docx>=1.1.0
 pypdf>=4.0.0

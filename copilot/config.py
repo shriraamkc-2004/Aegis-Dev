@@ -60,7 +60,7 @@ MINIO_BUCKET: str = os.getenv("MINIO_BUCKET", "aegis-documents")
 # ──────────────────────────────────────────────────────────────
 # Copilot Service
 # ──────────────────────────────────────────────────────────────
-COPILOT_PORT: int = int(os.getenv("COPILOT_PORT", "8110"))
+COPILOT_PORT: int = int(os.getenv("PORT", os.getenv("COPILOT_PORT", "8110")))
 COPILOT_HOST: str = os.getenv("COPILOT_HOST", "0.0.0.0")
 
 # ──────────────────────────────────────────────────────────────
