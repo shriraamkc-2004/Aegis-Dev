@@ -13,6 +13,7 @@
     "lint": "tsc --noEmit",
     "test": "jest --config jest.config.test.ts",
     "test:unit": "jest --config jest.config.test.ts",
+    "postinstall": "prisma generate",
     "prepare": "husky"
   },
   "dependencies": {
