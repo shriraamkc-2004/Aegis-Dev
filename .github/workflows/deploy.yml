@@ -64,7 +64,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, test]
     environment: production
-    if: ${{ secrets.DEPLOY_HOST != '' }}
 
     steps:
       - name: Checkout
@@ -72,6 +71,9 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        if: env.DEPLOY_HOST != ''
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
